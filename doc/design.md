@@ -131,6 +131,12 @@ A parent's render updates each child component: new props, render, reconcile. Wi
 
 Measured in the page's Emacs with 1000 keyed rows: a render that changes one row takes 134 ms, 29 ms with `:pure` rows (the rest is the parent building 1000 elements and matching the keys).
 
+## Redefinition
+
+`react-define-component` on a name that is already defined is a change of the program while it runs. The new definition replaces the old one on the symbol; `react--redefined` walks the mounted trees, gives every instance of that component the new definition, and queues it for a render that `:should-update` cannot decline. The state plists stay, so the page shows the new code with the old state. `:initial-state` and `:did-mount` are not run again, and a timer that the old `:did-mount` started still calls the old function.
+
+The host's `load(name, text)` is the entry point for a development tool: it compiles and loads the source like at startup and applies the operations of the flush that follows.
+
 ## Order and time
 
 The eval service answers one request at a time, in order, and the host applies each answer before the next one arrives. A burst of clicks therefore renders correctly without any locking. Everything in Lisp is synchronous: a handler runs to its end, then the render, then the answer. Answers to requests (a timer, a response) queue up with the events.

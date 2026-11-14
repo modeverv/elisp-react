@@ -294,8 +294,9 @@ function reportError(error) {
  *   library   URL of react.el (default: ../lisp/react.el next to this file)
  *   sources   [{ name, text }] to evaluate instead of the page's
  *             <script type="text/emacs-lisp"> elements
- * Resolves with { emacs, version, bootMs, dom }: `emacs` is the eval service
- * (emacs.eval, emacs.call), for experiments from the console.
+ * Resolves with { emacs, version, bootMs, dom, load }: `emacs` is the eval
+ * service (emacs.eval, emacs.call), for experiments from the console;
+ * load(name, text) evaluates changed source in the running page.
  */
 export async function start({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.el", import.meta.url), sources = null } = {}) {
   const { createEmacsEvalService } = await import(new URL("app/src/emacs-eval-client.js", wasmacs).href);
@@ -323,7 +324,15 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   await emacs.call("react--storage-load", storedEntries());
   for (const source of sources) await loadLisp(emacs, info.version, source.name, source.text);
   dom.apply(await emacs.call("react-flush"));
-  return { emacs, dom, version: info.version, bootMs: info.bootMs, cached: info.cached };
+  return {
+    emacs, dom, version: info.version, bootMs: info.bootMs, cached: info.cached,
+    // Evaluate changed source while the page runs (a development tool).
+    // Components that are defined again keep the state of their instances.
+    async load(name, text) {
+      await loadLisp(emacs, info.version, name, text);
+      dom.apply(await emacs.call("react-flush"));
+    },
+  };
 }
 
 // A page that contains Emacs Lisp starts by itself.

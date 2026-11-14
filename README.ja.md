@@ -150,6 +150,10 @@ render 関数の中の `lambda` は描画のたびに新しいオブジェクト
 
 DOM 要素の props: `:on-click`、`:on-input`、`:on-submit` などはイベントリスナーです（関数は `:type :value :checked :key` を持つ plist を受け取ります）。`:value` と `:checked` は DOM プロパティなので、入力欄は controlled になります。`:style` は文字列か plist です。それ以外は属性になります（`nil` で削除、`t` で空の属性）。
 
+## 動いているページを書き換える
+
+ページに表示中のコンポーネントを定義し直すと、新しい定義に入れ替わり、各インスタンスは今の state のまま再描画されます。土台はこれを `window.elispReact.load(name, text)` として公開しています。変更したソースを、動いているページの中でコンパイルして評価します。[elisp-studio](https://github.com/modeverv/elisp-studio) はこの上に作られています。ブラウザの中の Emacs でファイルを編集すると、隣で動いているアプリケーションが、保存のたびにリロードなしで変わります。
+
 ## 開発
 
 ```sh

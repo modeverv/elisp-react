@@ -115,7 +115,8 @@
   dirty       ; state changed since the last render
   mounted     ; nil once unmounted
   rendered-props rendered-state   ; what the last render saw
-  refs)       ; alist: ref name -> mounted element
+  refs        ; alist: ref name -> mounted element
+  force)      ; render even if :should-update says no (the definition changed)
 
 (defvar react--next-dom-id 0)
 (defvar react--ops nil "DOM operations for the host, newest first.")
@@ -166,8 +167,33 @@ children reach the component as the prop :children."
     (error "Component %s has no :render function" name))
   (when (and (plist-get spec :pure) (not (plist-get spec :should-update)))
     (setq spec (append spec (list :should-update #'react--pure-should-update))))
-  (put name 'react-component spec)
+  (let ((defined (get name 'react-component)))
+    (put name 'react-component spec)
+    ;; Defined again while it is on the page (a development tool evaluated
+    ;; the changed source): the instances take the new definition and render
+    ;; again with the state they have.
+    (when defined (react--redefined name spec)))
   name)
+
+(defun react--redefined (name spec)
+  "Give the mounted instances of the component NAME its new SPEC."
+  (react--each-instance
+   (lambda (instance)
+     (when (eq (react--instance-type instance) name)
+       (setf (react--instance-spec instance) spec
+             (react--instance-force instance) t)
+       (unless (react--instance-dirty instance)
+         (setf (react--instance-dirty instance) t)
+         (push instance react--dirty))))))
+
+(defun react--each-instance (function &optional mounted)
+  "Call FUNCTION with every component instance below MOUNTED (or on the page)."
+  (cond ((null mounted) (maphash (lambda (_selector root) (react--each-instance function root)) react--roots))
+        ((react--instance-p mounted)
+         (funcall function mounted)
+         (react--each-instance function (react--instance-child mounted)))
+        ((react--host-p mounted)
+         (dolist (child (react--host-children mounted)) (react--each-instance function child)))))
 
 (defun react--element-props (element)
   "The props of ELEMENT, which is (TAG [PROPS] CHILD...)."
@@ -537,6 +563,7 @@ list of mounted children."
     ;; A skipped render leaves "what the last render saw" as it is: the next
     ;; question is again about the difference to what is on the page.
     (when (or (null should-update)
+              (prog1 (react--instance-force instance) (setf (react--instance-force instance) nil))
               (funcall should-update instance (react--instance-rendered-props instance)
                        (react--instance-rendered-state instance)))
       (when (plist-get (react--instance-spec instance) :did-update)

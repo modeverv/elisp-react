@@ -150,6 +150,10 @@ Children of a list that changes get a `:key`: `(li (:key id) ...)`. A child with
 
 Props of DOM elements: `:on-click`, `:on-input`, `:on-submit`, ... are listeners (the function gets a plist `:type :value :checked :key`); `:value` and `:checked` are DOM properties, so inputs are controlled; `:style` is a string or a plist; everything else is an attribute (`nil` removes it, `t` sets it empty).
 
+## Changing a running page
+
+A component that is defined again while it is on the page takes the new definition and renders again with the state its instances have. The host exposes this as `window.elispReact.load(name, text)`, which compiles and evaluates changed source in the running page. [elisp-studio](https://github.com/modeverv/elisp-studio) builds on it: Emacs in the browser edits the files, and the application next to it changes at every save, without a reload.
+
 ## Development
 
 ```sh

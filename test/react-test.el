@@ -671,6 +671,38 @@
                              (react-host-reply (car (car (react-test--calls ops))) t '(:status 200 :ok t :text "{\"n\":5}")))
                      '(("set-text" 2 "got 5")))))))
 
+;;;; Defining a component again
+
+(ert-deftest react-test-redefinition-keeps-state ()
+  "A component that is defined again renders anew with the state its instances have."
+  (react-test--fresh
+    (react-define-component 'react-test-live
+      :pure t
+      :initial-state (lambda (_props) (list :count 0))
+      :render (lambda (self)
+                `(button (:on-click ,(lambda (_event) (react-set-state self :count (1+ (react-state self :count)))))
+                   ,(format "count %d" (react-state self :count)))))
+    (react-mount '(div () (react-test-live) (react-test-live)) "#app")
+    (let ((buttons (react-test--listener "click" (react-test--ops))))
+      (react-dispatch-event (nth 0 buttons) "click" nil)
+      (react-dispatch-event (nth 0 buttons) "click" nil)
+      (react-dispatch-event (nth 1 buttons) "click" nil)
+      ;; The source changed: other text, another step, a new initial state.
+      (react-define-component 'react-test-live
+        :pure t
+        :initial-state (lambda (_props) (list :count 100))
+        :render (lambda (self)
+                  `(button (:on-click ,(lambda (_event) (react-set-state self :count (+ 10 (react-state self :count)))))
+                     ,(format "clicked %d times" (react-state self :count)))))
+      (let ((ops (react-test--ops)))
+        ;; Both instances rendered again (although pure and unchanged), in place.
+        (should (equal (mapcar #'car ops) '("set-text" "set-text")))
+        (should (equal (react-html "#app")
+                       "<div><button>clicked 2 times</button><button>clicked 1 times</button></div>")))
+      ;; The new handler is in effect; the old state went on.
+      (react-dispatch-event (nth 0 buttons) "click" nil)
+      (should (string-match-p "clicked 12 times" (react-html "#app"))))))
+
 ;;;; The examples load and render
 
 (defun react-test--load-example (name)
