@@ -83,13 +83,47 @@ Signals an error for a request that cannot be answered."
            :notes (length (elisp-react-server--notes))))
     ('("GET" "/api/notes") (elisp-react-server--notes))
     ('("POST" "/api/notes")
-     ;; `read' makes data out of the text.  Nothing is evaluated.
+     ;; The text becomes data.  Nothing is evaluated.
      (elisp-react-server--save-notes
-      (notes-apply (elisp-react-server--notes) (car (read-from-string body)))))
+      (notes-apply (elisp-react-server--notes) (elisp-react-server--data body))))
     ('("GET" "/api/buffers")
      (mapcar (lambda (buffer) (list :name (buffer-name buffer) :size (buffer-size buffer)))
              (cl-remove-if (lambda (buffer) (string-prefix-p " " (buffer-name buffer))) (buffer-list))))
     (_ (signal 'file-missing (list "No such API" path)))))
+
+;;;; What a page sends
+
+(defun elisp-react-server--data (text)
+  "The Lisp data that TEXT, the body of a request, is the printed form of.
+Strings, numbers, lists, vectors, and symbols this Emacs already knows.
+Emacs's reader alone would keep every new name in TEXT as a symbol for
+good: a page could fill this Emacs's memory with names.  So the text is
+read into an obarray of its own, and only names known here come through."
+  (let* ((value (let ((obarray (obarray-make 31)))
+                  (car (read-from-string text))))
+         (left 100000))
+    (cl-labels
+        ((clean (data depth)
+           (when (or (> depth 64) (< (setq left (1- left)) 0)) (error "The request holds too much data"))
+           (cond ((stringp data) (substring-no-properties data))
+                 ((numberp data) data)
+                 ((symbolp data)
+                  (cond ((equal (symbol-name data) "nil") nil)
+                        ((intern-soft (symbol-name data)))
+                        (t (error "The request names something unknown"))))
+                 ((consp data)
+                  (let ((result nil))
+                    (while (consp data)
+                      (push (clean (car data) (1+ depth)) result)
+                      (setq data (cdr data))
+                      (when (< (setq left (1- left)) 0) (error "The request holds too much data")))
+                    (let ((list (nreverse result)))
+                      (when data (setcdr (last list) (clean data (1+ depth))))
+                      list)))
+                 ((and (vectorp data) (not (byte-code-function-p data)))
+                  (apply #'vector (mapcar (lambda (element) (clean element (1+ depth))) data)))
+                 (t (error "The request holds something that is not data")))))
+      (clean value 0))))
 
 ;;;; Files
 
@@ -103,13 +137,22 @@ Signals an error for a request that cannot be answered."
   "The file that the URL PATH names, or nil."
   (let* ((path (decode-coding-string (url-unhex-string path) 'utf-8))
          (wasmacs (string-prefix-p "/wasmacs/" path))
-         (root (if wasmacs elisp-react-server-wasmacs elisp-react-server-root))
-         (file (expand-file-name (substring path (if wasmacs (length "/wasmacs/") 1)) root)))
-    (when (file-directory-p file) (setq file (expand-file-name "index.html" file)))
-    ;; Nothing outside the served directory, nothing hidden.
-    (and (string-prefix-p (file-truename root) (file-truename file))
-         (not (string-match-p "\\(?:\\`\\|/\\)\\." (file-relative-name file root)))
-         (file-regular-p file)
+         (root (file-name-as-directory (if wasmacs elisp-react-server-wasmacs elisp-react-server-root)))
+         ;; Emacs can take names like /ssh:host:/file for files on other
+         ;; machines (and would connect there).  Not here: a name in a
+         ;; request is a file under ROOT or nothing.
+         (file-name-handler-alist nil)
+         (file (and (not (string-match-p "[\0-\x1f\x7f]" path))
+                    (expand-file-name (substring path (if wasmacs (length "/wasmacs/") 1)) root))))
+    (when (equal file (directory-file-name root)) (setq file root))
+    ;; The name is judged before the disk is asked anything about it:
+    ;; nothing outside the served directory, nothing hidden.
+    (and file
+         (string-prefix-p root file)
+         (not (string-match-p "\\(?:\\`\\|/\\)\\." (substring file (length root))))
+         (progn (when (file-directory-p file) (setq file (expand-file-name "index.html" file)))
+                (file-regular-p file))
+         (string-prefix-p (file-truename root) (file-truename file))
          file)))
 
 ;;;; HTTP
@@ -131,14 +174,26 @@ Signals an error for a request that cannot be answered."
 (defun elisp-react-server--same-origin-p (headers)
   "Non-nil unless the request comes from a page of another site."
   (let ((origin (cdr (assoc "origin" headers))))
-    (or (null origin)
-        (member origin (list (format "http://127.0.0.1:%d" elisp-react-server-port)
-                             (format "http://localhost:%d" elisp-react-server-port))))))
+    (and (not (equal (cdr (assoc "sec-fetch-site" headers)) "cross-site"))
+         (or (null origin)
+             (member origin (list (format "http://127.0.0.1:%d" elisp-react-server-port)
+                                  (format "http://localhost:%d" elisp-react-server-port)))))))
+
+(defun elisp-react-server--own-host-p (headers)
+  "Non-nil if the request was made to this server under its own name.
+A page of another site can make its own name point to this machine (DNS
+rebinding); its requests carry that name in Host."
+  (let ((host (cdr (assoc "host" headers))))
+    (or (null host)
+        (member (downcase host) (list (format "127.0.0.1:%d" elisp-react-server-port)
+                                      (format "localhost:%d" elisp-react-server-port))))))
 
 (defun elisp-react-server--handle (process method target headers body)
   (let ((path (car (split-string target "?"))))
-    (message "elisp-react-server: %s %s" method path)
+    (message "elisp-react-server: %s %s" method (replace-regexp-in-string "[^!-~]" "?" path))
     (cond
+     ((not (elisp-react-server--own-host-p headers))
+      (elisp-react-server--respond process "421 Misdirected Request" "text/plain" "this server is not that host"))
      ((string-prefix-p "/api/" path)
       (if (not (elisp-react-server--same-origin-p headers))
           (elisp-react-server--respond-lisp process "403 Forbidden" "requests from other sites are refused")
