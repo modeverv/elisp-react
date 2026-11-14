@@ -1,0 +1,210 @@
+// elisp-react.js -- the JavaScript host of react.el.
+//
+// All of React is in Emacs Lisp (lisp/react.el), running in Emacs, which runs
+// in this page as WebAssembly (the wasmacs eval service).  This file is the
+// part that has to be JavaScript:
+//
+//   1. start Emacs and load react.el and the page's Emacs Lisp,
+//   2. apply the DOM operations Lisp returns,
+//   3. send DOM events to Lisp.
+//
+// A page loads it as a module and writes its program in Emacs Lisp:
+//
+//   <div id="app">Loading Emacs…</div>
+//   <script type="text/emacs-lisp" src="counter.el"></script>
+//   <script type="module" src="../../js/elisp-react.js"></script>
+//
+// Every <script type="text/emacs-lisp"> (with src, or inline) is evaluated
+// in document order.  window.elispReact.ready resolves when the page is up;
+// the events "elisp-react:ready" and "elisp-react:error" fire on document.
+
+const DEFAULT_WASMACS = "https://modeverv.github.io/wasmacs/";
+
+// Where the wasmacs eval service is published.  <meta name="elisp-react:wasmacs">
+// sets it for a page; ?wasmacs=... overrides it for local development and is
+// honoured for loopback addresses only (it names code that the page runs).
+function wasmacsBase() {
+  const param = new URLSearchParams(location.search).get("wasmacs");
+  if (param) {
+    const url = new URL(param, location.href);
+    if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(url.hostname)) return url.href;
+    console.warn(`elisp-react: ignoring ?wasmacs=${param} (only loopback addresses are accepted)`);
+  }
+  const meta = document.querySelector('meta[name="elisp-react:wasmacs"]');
+  return new URL(meta?.content || DEFAULT_WASMACS, location.href).href;
+}
+
+async function fetchText(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+  return response.text();
+}
+
+// ---- DOM operations ---------------------------------------------------------
+// Lisp names DOM nodes by number (see `react-flush' in react.el).
+
+function createDom(dispatch) {
+  const nodes = new Map();       // id -> Node
+  const listeners = new Map();   // "id:event" -> function
+
+  const node = (id) => {
+    const found = nodes.get(id);
+    if (!found) throw new Error(`elisp-react: unknown DOM node ${id}`);
+    return found;
+  };
+  const register = (id, created) => {
+    created.__elispReactId = id;
+    nodes.set(id, created);
+  };
+  // NODE left the page: forget it and everything below it.
+  const forget = (gone) => {
+    const id = gone.__elispReactId;
+    if (id !== undefined) {
+      nodes.delete(id);
+      for (const key of listeners.keys()) if (key.startsWith(`${id}:`)) listeners.delete(key);
+    }
+    gone.childNodes.forEach(forget);
+  };
+  // What Lisp gets to know about an event.
+  const describe = (event) => {
+    const target = event.target;
+    return {
+      type: event.type,
+      value: typeof target?.value === "string" ? target.value : null,
+      checked: typeof target?.checked === "boolean" ? target.checked : null,
+      key: typeof event.key === "string" ? event.key : null,
+    };
+  };
+
+  const operations = {
+    create(id, tag) { register(id, document.createElement(tag)); },
+    text(id, text) { register(id, document.createTextNode(text)); },
+    "set-text"(id, text) { node(id).data = text; },
+    attr(id, name, value) {
+      if (value === null || value === false) node(id).removeAttribute(name);
+      else node(id).setAttribute(name, value === true ? "" : String(value));
+    },
+    prop(id, name, value) {
+      const element = node(id);
+      const next = name === "checked" ? Boolean(value) : value ?? "";
+      if (element[name] !== next) element[name] = next;
+    },
+    listen(id, name) {
+      const key = `${id}:${name}`;
+      if (listeners.has(key)) return;
+      const listener = (event) => {
+        // Lisp answers later, too late to decide this: a form handled in
+        // Lisp is not also submitted by the browser.
+        if (name === "submit") event.preventDefault();
+        dispatch(id, name, describe(event));
+      };
+      listeners.set(key, listener);
+      node(id).addEventListener(name, listener);
+    },
+    unlisten(id, name) {
+      const key = `${id}:${name}`;
+      const listener = listeners.get(key);
+      if (!listener) return;
+      node(id).removeEventListener(name, listener);
+      listeners.delete(key);
+    },
+    insert(parentId, id, beforeId) { node(parentId).insertBefore(node(id), beforeId === null ? null : node(beforeId)); },
+    replace(oldId, id) {
+      const old = node(oldId);
+      old.replaceWith(node(id));
+      forget(old);
+    },
+    remove(id) {
+      const gone = node(id);
+      gone.remove();
+      forget(gone);
+    },
+    mount(selector, id) {
+      const container = document.querySelector(selector);
+      if (!container) throw new Error(`elisp-react: nothing matches ${selector}`);
+      if (node(id).parentNode !== container) container.replaceChildren(node(id));
+    },
+  };
+
+  return {
+    apply(ops) {
+      for (const [name, ...args] of ops || []) {
+        const operation = operations[name];
+        if (!operation) throw new Error(`elisp-react: unknown DOM operation ${name}`);
+        operation(...args);
+      }
+    },
+    nodeCount: () => nodes.size,
+  };
+}
+
+// ---- start --------------------------------------------------------------------
+
+function reportError(error) {
+  console.error("[elisp-react]", error);
+  document.dispatchEvent(new CustomEvent("elisp-react:error", { detail: error }));
+  let box = document.querySelector("#elisp-react-error");
+  if (!box) {
+    box = document.createElement("pre");
+    box.id = "elisp-react-error";
+    box.style.cssText = "position:fixed;left:0;right:0;bottom:0;margin:0;padding:8px 12px;max-height:40vh;overflow:auto;"
+      + "background:#5c1010;color:#fff;font:12px/1.4 monospace;white-space:pre-wrap;z-index:99999";
+    document.body.append(box);
+  }
+  const symbol = error?.symbol ? `${error.symbol}: ` : "";
+  box.textContent += `${symbol}${error?.message || error}\n`;
+}
+
+/**
+ * Start Emacs, load react.el and the page's Emacs Lisp, render.
+ *   wasmacs   base URL of the wasmacs site (default: see wasmacsBase)
+ *   library   URL of react.el (default: ../lisp/react.el next to this file)
+ *   sources   [{ name, text }] to evaluate instead of the page's
+ *             <script type="text/emacs-lisp"> elements
+ * Resolves with { emacs, version, bootMs, dom }: `emacs` is the eval service
+ * (emacs.eval, emacs.call), for experiments from the console.
+ */
+export async function start({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.el", import.meta.url), sources = null } = {}) {
+  const { createEmacsEvalService } = await import(new URL("app/src/emacs-eval-client.js", wasmacs).href);
+  const emacs = createEmacsEvalService({ onOutput: (text) => console.log(`[emacs] ${text.trimEnd()}`) });
+
+  let dom = null;
+  // Events are answered in the order they happened: the service works on one
+  // request at a time, and each answer is applied before the next arrives.
+  const dispatch = (id, name, event) => {
+    emacs.call("react-dispatch-event", id, name, event).then((ops) => dom.apply(ops), reportError);
+  };
+  dom = createDom(dispatch);
+
+  if (!sources) {
+    sources = await Promise.all([...document.querySelectorAll('script[type="text/emacs-lisp"]')].map(async (script) => (
+      script.src ? { name: script.getAttribute("src"), text: await fetchText(script.src) }
+        : { name: "inline script", text: script.textContent }
+    )));
+  }
+  const [info, libraryText] = await Promise.all([emacs.ready, fetchText(library)]);
+  // The value of a file is of no interest (and need not have a JSON form).
+  const load = async (name, text) => {
+    try {
+      await emacs.eval(`${text}\nnil`);
+    } catch (error) {
+      error.message = `${name}: ${error.message}`;
+      throw error;
+    }
+  };
+  await load("react.el", libraryText);
+  for (const source of sources) await load(source.name, source.text);
+  dom.apply(await emacs.call("react-flush"));
+  return { emacs, dom, version: info.version, bootMs: info.bootMs };
+}
+
+// A page that contains Emacs Lisp starts by itself.
+if (typeof document !== "undefined" && document.querySelector('script[type="text/emacs-lisp"]')
+    && !document.documentElement.hasAttribute("data-elisp-react-manual")) {
+  const ready = start();
+  window.elispReact = { ready };
+  ready.then((app) => {
+    Object.assign(window.elispReact, app);
+    document.dispatchEvent(new CustomEvent("elisp-react:ready", { detail: app }));
+  }, reportError);
+}

@@ -1,0 +1,12 @@
+body { margin: 0; background: #16181d; color: #e6e6e6; font: 15px/1.6 system-ui, sans-serif; }
+#app, .source { max-width: 640px; margin: 0 auto; padding: 16px 20px; }
+h1 { font-size: 22px; margin: 8px 0; color: #c792ea; }
+a { color: #82aaff; }
+.loading, .source { color: #8a8f98; }
+.counter, .row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin: 8px 0;
+                 background: #20232a; border-radius: 6px; }
+.count, .name { margin: 0; min-width: 9em; font-variant-numeric: tabular-nums; }
+.total { font-size: 18px; margin: 12px 0; }
+button { font: inherit; padding: 4px 14px; border: 0; border-radius: 4px; background: #5b3d8f; color: #fff; cursor: pointer; }
+button:disabled { background: #33363d; color: #777; cursor: default; }
+input { font: inherit; padding: 4px 8px; border: 1px solid #444; border-radius: 4px; background: #111; color: inherit; }
