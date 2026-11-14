@@ -6,6 +6,12 @@ Emacs Lisp で書いた React です。
 
 公開ページ: <https://modeverv.github.io/elisp-react/> （サンプルを最初に開くとき、Emacs 本体を約150MBダウンロードします。以後はブラウザに保存され、2回目からは約0.2秒で描画されます）
 
+これでできること:
+
+- **プログラムが Emacs Lisp の Web ページ。** HTML ファイルの隣に `.el` ファイルを置くだけです。ビルドもバンドラも Node.js も要りません。ファイルを書き換えてリロードすれば反映されます。
+- **全部が Emacs Lisp のアプリケーション。** ネイティブの Emacs を Web サーバーにすると（[両側が Emacs](#両側が-emacs)）、サーバーも、ページも、両者が共有するコードも Emacs Lisp になり、やり取りするのも Lisp のデータになります。必要なのは Emacs とブラウザだけです。
+- **自分の Emacs の中身を見る画面。** 普段使っている Emacs の中でそのサーバーを起動すれば、バッファ一覧など Emacs が知っていることを、同じ言語で書いたページに表示できます。
+
 [English](README.md)
 
 ## ページの書き方
@@ -51,22 +57,6 @@ Emacs Lisp で書いた React です。
 (react-mount (jsx (Counter (:start 3))) "#app")
 ```
 
-## 構成
-
-```text
-lisp/react.el          React 本体: 要素、jsx、コンポーネント、state、key つきの差分計算、タイマー、fetch、保存、async/await（Emacs Lisp 910行）
-js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送、依頼への応答、Lisp のコンパイルとキャッシュ（350行）
-examples/counter/      state を持つコンポーネント
-examples/counters/     親が state を持ち、props で渡し、イベントで戻す例。リストと入力欄つき
-examples/todo/         TODO リスト。jsx、自分の state を持つ key つきの行、フィルタ、並べ替え、localStorage への保存
-examples/async/        インターバル、タイムアウト、async/await で書いたカウントダウンと fetch
-examples/server/       両側が Emacs。ネイティブの Emacs が Web サーバーになり、データを持つ
-test/react-test.el     差分計算のテスト（ネイティブの Emacs で実行。ブラウザ不要）
-test/e2e.mjs           サンプルを headless Chrome で動かすテスト
-doc/design.md          仕組み（英語）
-doc/experiment-notes.md  ここまでの実験で分かったこと
-```
-
 ## 両側が Emacs
 
 `examples/server/` は、独自の JavaScript もビルドもないアプリケーションです。ネイティブの Emacs プロセスが Web サーバーになってデータを持ち、ブラウザの中の Emacs がページを描画します。両者は JSON ではなく、印字した Lisp データをやり取りします。
@@ -82,7 +72,30 @@ examples/server/app.el      ページ。react-fetch / react-async でサーバ�
 examples/server/notes.el    両方が読み込む。リストを変更する関数と、メモの文字列の検査
 ```
 
+このサンプルで分かること:
+
+- **ビルドも、自前の JavaScript もありません。** 3つの `.el` ファイルがアプリケーションのすべてです。ブラウザが読み込み時にコンパイルし、結果を保存します。
+- **言語もデータ形式も1つです。** 両側の間で JSON との変換をしません。片方で印字した plist は、もう片方で `read` すると同じ plist になります。
+- **コードを共有できます。** `notes.el` は両側で動きます。サーバーはその関数でリストを変更し、ページはその検査でボタンを有効にし、サーバーは同じ検査で不正な入力を拒否します。
+- **2つのタブが同期します。** ページは2秒ごとに問い合わせ直すので、別のタブや `curl` での変更が現れます。
+
 リクエストの本文は `(add "text")` のようなアクションです。サーバーはそれをデータとして `read` し（送られてきたものを評価することはありません）、共有している関数で適用し、リストを `.eld` ファイルに保存して、新しいリストを返します。ページはそれを `read` して state に入れます。サーバーは 127.0.0.1 でだけ待ち受け、他サイトのページからのリクエストは拒否します。普段使っている Emacs の中で起動すれば、`/api/buffers` のように、その Emacs 自身の状態をページに見せることもできます。
+
+## 構成
+
+```text
+lisp/react.el          React 本体: 要素、jsx、コンポーネント、state、key つきの差分計算、タイマー、fetch、保存、async/await（Emacs Lisp 910行）
+js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送、依頼への応答、Lisp のコンパイルとキャッシュ（350行）
+examples/counter/      state を持つコンポーネント
+examples/counters/     親が state を持ち、props で渡し、イベントで戻す例。リストと入力欄つき
+examples/todo/         TODO リスト。jsx、自分の state を持つ key つきの行、フィルタ、並べ替え、localStorage への保存
+examples/async/        インターバル、タイムアウト、async/await で書いたカウントダウンと fetch
+examples/server/       両側が Emacs。ネイティブの Emacs が Web サーバーになり、データを持つ
+test/react-test.el     差分計算のテスト（ネイティブの Emacs で実行。ブラウザ不要）
+test/e2e.mjs           サンプルを headless Chrome で動かすテスト
+doc/design.md          仕組み（英語）
+doc/experiment-notes.md  ここまでの実験で分かったこと
+```
 
 ## API
 

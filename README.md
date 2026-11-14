@@ -6,6 +6,12 @@ This is an experiment: can the React of 2013 (components with props and state, r
 
 Live: <https://modeverv.github.io/elisp-react/>. The first visit of an example downloads Emacs, about 150 MB; it is then kept in the browser, and later visits render in about 0.2 s.
 
+What it comes to:
+
+- **A web page whose program is Emacs Lisp.** Put `.el` files next to an HTML file; there is no build step, no bundler and no Node.js. Edit a file, reload.
+- **A whole application in Emacs Lisp.** With a native Emacs as the web server ([Emacs on both ends](#emacs-on-both-ends)), the server, the page and the code they share are all Emacs Lisp, and they exchange Lisp data. The only requirements are Emacs and a browser.
+- **A view into your own Emacs.** Started inside the Emacs you use, that server can show its buffers, or anything else Emacs knows, in a page written in the same language.
+
 [日本語](README.ja.md)
 
 ## A page
@@ -51,22 +57,6 @@ The element above is plain data built with backquote. The `jsx` macro writes the
 (react-mount (jsx (Counter (:start 3))) "#app")
 ```
 
-## What is where
-
-```text
-lisp/react.el          React: elements, jsx, components, state, keyed reconciler, timers, fetch, storage, async/await (910 lines of Emacs Lisp)
-js/elisp-react.js      the host: starts Emacs, applies DOM operations, forwards events, answers requests, compiles and caches the Lisp (350 lines)
-examples/counter/      a component with state
-examples/counters/     state in a parent, props down, events up, a list, a controlled input
-examples/todo/         a TODO list: jsx, keyed rows with state of their own, filters, reordering, localStorage
-examples/async/        an interval, a timeout, a countdown and a fetch written with async/await
-examples/server/       Emacs on both ends: a native Emacs is the web server and keeps the data
-test/react-test.el     tests of the reconciler with a native Emacs, no browser
-test/e2e.mjs           the examples in headless Chrome
-doc/design.md          how it works
-doc/experiment-notes.md  what the experiment shows so far (Japanese)
-```
-
 ## Emacs on both ends
 
 `examples/server/` is an application without any JavaScript or build step of its own: a native Emacs process is the web server and keeps the data, the Emacs in the browser draws the page, and they exchange printed Lisp data instead of JSON.
@@ -82,7 +72,30 @@ examples/server/app.el      the page: components that ask the server with react-
 examples/server/notes.el    loaded by both: the functions that change the list, and the check of a note's text
 ```
 
+What the example shows:
+
+- **No build, no JavaScript of your own.** The three `.el` files are the application. The browser compiles them when it loads them and keeps the result.
+- **One language, one data format.** No JSON mapping between the two sides: a plist printed on one side is the same plist after `read` on the other.
+- **Shared code.** `notes.el` runs on both sides: the server uses its functions to change the list, the page uses its check to enable the button, the server uses the same check to refuse.
+- **Two tabs stay in step.** The page asks again every two seconds, so a change made elsewhere (another tab, `curl`) appears.
+
 A request body is an action such as `(add "text")`; the server `read`s it as data (it evaluates nothing it is sent), applies it with the shared function, saves the list as an `.eld` file and answers with the new list, which the page `read`s into its state. The server listens on 127.0.0.1 only and refuses requests made by pages of other sites. Run inside the Emacs you are using, `/api/buffers` and friends can show that Emacs's own state to a page.
+
+## What is where
+
+```text
+lisp/react.el          React: elements, jsx, components, state, keyed reconciler, timers, fetch, storage, async/await (910 lines of Emacs Lisp)
+js/elisp-react.js      the host: starts Emacs, applies DOM operations, forwards events, answers requests, compiles and caches the Lisp (350 lines)
+examples/counter/      a component with state
+examples/counters/     state in a parent, props down, events up, a list, a controlled input
+examples/todo/         a TODO list: jsx, keyed rows with state of their own, filters, reordering, localStorage
+examples/async/        an interval, a timeout, a countdown and a fetch written with async/await
+examples/server/       Emacs on both ends: a native Emacs is the web server and keeps the data
+test/react-test.el     tests of the reconciler with a native Emacs, no browser
+test/e2e.mjs           the examples in headless Chrome
+doc/design.md          how it works
+doc/experiment-notes.md  what the experiment shows so far (Japanese)
+```
 
 ## API
 
