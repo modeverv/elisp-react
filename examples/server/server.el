@@ -200,7 +200,9 @@ Signals an error for a request that cannot be answered."
   (setq elisp-react-server--started (current-time)
         elisp-react-server--notes 'unread
         elisp-react-server--process
-        (make-network-process :name "elisp-react-server" :server t :host "127.0.0.1" :family 'ipv4
+        ;; The number is the length of the queue of connections that wait to
+        ;; be accepted (Emacs's default, 5, turns a burst of requests away).
+        (make-network-process :name "elisp-react-server" :server 256 :host "127.0.0.1" :family 'ipv4
                               :service elisp-react-server-port :coding 'binary :noquery t
                               :filter #'elisp-react-server--filter))
   (let ((url (format "http://127.0.0.1:%d/examples/server/" elisp-react-server-port)))
