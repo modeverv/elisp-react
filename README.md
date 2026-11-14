@@ -81,6 +81,8 @@ What the example shows:
 
 A request body is an action such as `(add "text")`; the server `read`s it as data (it evaluates nothing it is sent), applies it with the shared function, saves the list as an `.eld` file and answers with the new list, which the page `read`s into its state. The server listens on 127.0.0.1 only and refuses requests made by pages of other sites. Run inside the Emacs you are using, `/api/buffers` and friends can show that Emacs's own state to a page.
 
+It is an example, not a server for an application: no sign-in, no cookies or sessions, no uploads; a request body of 64 KB at most; one request per connection; no limit on connections and no timeouts; a file is read into memory whole to be sent. It does keep to its own machine: a request under another `Host`, or to `/api/` from a page of another site, is refused; a body is read without its names staying in Emacs; a file name in a request is a file under the served directory or nothing (three fixes that came out of [elisp-studio's security check](https://github.com/modeverv/elisp-studio/blob/main/doc/security.md)). The server with sessions, password hashes, uploads, limits and a reverse proxy in front is the project server of [elisp-studio](https://github.com/modeverv/elisp-studio).
+
 ## What is where
 
 ```text
@@ -118,6 +120,13 @@ Lisp runs only while it answers the page: it cannot wait and cannot reach into t
 | `(react-fetch URL :method :headers :body :then F :catch F)`, `(react-response-json RESPONSE)`, `(react-cancel REQUEST)` | The browser's `fetch`. `:then` gets a plist `(:status 200 :ok t :text "...")`, also for HTTP error statuses; `:catch` gets a message when there was no response. With `:file (react-ref SELF NAME)` instead of `:body`, the body is the file the visitor chose in that file input: it goes from the page to the server as it is, whatever its size, without passing through Lisp. |
 | `(react-storage-get KEY [DEFAULT])`, `(react-storage-set KEY VALUE)`, `(react-storage-remove KEY)` | The page's `localStorage`, holding any printable Lisp data. Reading is immediate. |
 | `:ref "name"` on an element, `(react-focus SELF "name")`, `(react-invoke SELF "name" METHOD)` | Call `focus`, `blur`, `select`, `click` or `scrollIntoView` on the DOM node of an element the component rendered, after the render's DOM changes (use it in `:did-update` or `:did-mount`). |
+
+Signing in, as far as the page is concerned (tried on 2026-11-15 from Chrome against elisp-studio's project server, a session cookie and a bearer token in one page):
+
+- **Cookies need nothing.** `react-fetch` is the browser's `fetch` with its defaults: a request to the page's own server carries that server's cookies and takes new ones from the answer. A session cookie that is `HttpOnly` never shows up in Lisp. A request to another origin carries no cookies and is subject to that server's CORS rules.
+- **A token is a header.** `:headers (:authorization "Bearer …")` sends one (a JWT, for instance). The page then has to keep it: in a component's state, where a reload loses it, or with `react-storage-set`, which is `localStorage`: it stays, and every script of the page can read it. The cookie is the safer place.
+- **An answer is its status and its text.** Lisp does not get the headers of a response, so a server that hands out a token puts it in the body.
+- **Checking is the server's.** The page's Emacs has `secure-hash` and no other cryptography ([wasmacs, doc/eval-service.md](https://github.com/modeverv/wasmacs/blob/master/doc/eval-service.md#hashes-random-bytes-sockets)). It can read what a token says (`base64-decode-string`, `json-parse-string`), but whatever a page checks, its visitor can change.
 
 The same asynchronous code can be written top to bottom. `react-async` runs its body until the first `react-await`, returns to the page, and continues when the page answers (it is built on Emacs's `generator.el`):
 
@@ -169,4 +178,4 @@ With a wasmacs checkout next to this one (`../wasmacs/docs`), the server and the
 
 ## Limits
 
-This is an experiment, not a framework. A handler that never returns cannot be interrupted, an `async` body cannot be cancelled, and Emacs is a 150 MB download on the first visit. A render of 1000 keyed rows takes about 130 ms, about 30 ms when the rows are `:pure`. See [doc/experiment-notes.md](doc/experiment-notes.md).
+This is an experiment, not a framework. A handler that never returns cannot be interrupted, an `async` body cannot be cancelled, and Emacs is a 150 MB download on the first visit. A render of 1000 keyed rows takes about 130 ms, about 30 ms when the rows are `:pure`. The server of `examples/server/` belongs to the example and is not one to publish ("Emacs on both ends" says what it lacks). See [doc/experiment-notes.md](doc/experiment-notes.md).

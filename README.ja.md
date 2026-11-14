@@ -81,6 +81,8 @@ examples/server/notes.el    両方が読み込む。リストを変更する関�
 
 リクエストの本文は `(add "text")` のようなアクションです。サーバーはそれをデータとして `read` し（送られてきたものを評価することはありません）、共有している関数で適用し、リストを `.eld` ファイルに保存して、新しいリストを返します。ページはそれを `read` して state に入れます。サーバーは 127.0.0.1 でだけ待ち受け、他サイトのページからのリクエストは拒否します。普段使っている Emacs の中で起動すれば、`/api/buffers` のように、その Emacs 自身の状態をページに見せることもできます。
 
+これはサンプルであり、アプリケーション用のサーバーではありません。ログイン、Cookie、セッション、アップロードはありません。リクエストの本文は 64 KB までで、1つの接続で扱うリクエストは1つです。接続数の制限もタイムアウトもなく、ファイルは全体をメモリに読み込んでから送ります。一方で、自分のマシンの外には開いていません。別の `Host` 名でのリクエストと、他サイトのページから `/api/` へのリクエストは拒否します。本文を読んでも、その中の名前は Emacs に残りません。リクエストのファイル名は、配信するディレクトリの下のファイルとしてしか扱いません（この3点は、[elisp-studio のセキュリティ検査](https://github.com/modeverv/elisp-studio/blob/main/doc/security.md)で見つかり、直したものです）。セッション、パスワードのハッシュ、アップロード、各種の制限を備え、手前にリバースプロキシを置けるサーバーは、[elisp-studio](https://github.com/modeverv/elisp-studio) のプロジェクトサーバーです。
+
 ## 構成
 
 ```text
@@ -118,6 +120,13 @@ Lisp はページに応答している間しか動きません。待つことも
 | `(react-fetch URL :method :headers :body :then F :catch F)`、`(react-response-json RESPONSE)`、`(react-cancel REQUEST)` | ブラウザの `fetch` です。`:then` は `(:status 200 :ok t :text "...")` という plist を受け取ります（HTTP のエラーステータスのときも同じです）。応答そのものがなかったときは `:catch` がメッセージを受け取ります。`:body` の代わりに `:file (react-ref SELF NAME)` を渡すと、閲覧者がそのファイル入力で選んだファイルが本文になります。ファイルは、大きさにかかわらず、Lisp を通らずにページからサーバーへそのまま送られます。 |
 | `(react-storage-get KEY [DEFAULT])`、`(react-storage-set KEY VALUE)`、`(react-storage-remove KEY)` | ページの `localStorage` です。印字できる Lisp データなら何でも保存できます。読み出しは即座に返ります。 |
 | 要素の `:ref "name"`、`(react-focus SELF "name")`、`(react-invoke SELF "name" METHOD)` | コンポーネントが描画した要素の DOM ノードに対して `focus`、`blur`、`select`、`click`、`scrollIntoView` を呼びます。その描画の DOM 変更のあとに実行されます（`:did-update` か `:did-mount` の中で使います）。 |
+
+ログインについて、ページ側で決まっていることは次のとおりです（2026-11-15 に、Chrome から elisp-studio のプロジェクトサーバーに対して、セッションの Cookie と Bearer トークンを1つのページで試しました）。
+
+- **Cookie は何もしなくても届きます。** `react-fetch` は、ブラウザの `fetch` を既定の設定のまま使います。ページ自身のサーバーへのリクエストには、そのサーバーの Cookie が付き、応答で渡された Cookie も保存されます。`HttpOnly` のセッション Cookie は、Lisp からは見えません。別のオリジンへのリクエストには Cookie が付かず、相手のサーバーの CORS の設定に従います。
+- **トークンはヘッダーで送ります。** `:headers (:authorization "Bearer …")` で送れます（たとえば JWT）。その場合、トークンはページが持っておく必要があります。コンポーネントの state に置くと、再読み込みで消えます。`react-storage-set` に置くと `localStorage` に残り、ページのすべてのスクリプトから読めます。安全なのは Cookie のほうです。
+- **応答として届くのは、ステータスと本文です。** Lisp は応答のヘッダーを受け取りません。トークンを渡すサーバーは、本文に入れます。
+- **検証はサーバーの仕事です。** ページの Emacs にある暗号の機能は `secure-hash` だけです（[wasmacs の doc/eval-service.md](https://github.com/modeverv/wasmacs/blob/master/doc/eval-service.md#hashes-random-bytes-sockets)）。トークンの中身を読むことはできます（`base64-decode-string`、`json-parse-string`）。しかし、ページの中で検証しても、閲覧者はそれを書き換えられます。
 
 同じ非同期処理を、上から下へ順に書くこともできます。`react-async` は本体を最初の `react-await` まで実行してページに戻り、ページから答えが来たら続きを実行します（Emacs の `generator.el` の上に作ってあります）。
 
@@ -169,4 +178,4 @@ npm run test:server  # サーバーのサンプル（Emacs のサーバープロ
 
 ## 制限
 
-これは実験で、フレームワークではありません。戻ってこないハンドラは中断できません。`async` の本体は途中でキャンセルできません。Emacs は初回に約150MBをダウンロードします。key つきの1000行の再描画には約130ミリ秒、行を `:pure` にすると約30ミリ秒かかります。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
+これは実験で、フレームワークではありません。戻ってこないハンドラは中断できません。`async` の本体は途中でキャンセルできません。Emacs は初回に約150MBをダウンロードします。key つきの1000行の再描画には約130ミリ秒、行を `:pure` にすると約30ミリ秒かかります。`examples/server/` のサーバーはサンプルの一部で、公開するためのものではありません（足りないものは「両側が Emacs」にあります）。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
