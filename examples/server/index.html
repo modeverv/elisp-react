@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>elisp-react: Emacs on both ends</title>
+    <link rel="stylesheet" href="../examples.css">
+  </head>
+  <body>
+    <div id="app">
+      <p class="loading">Loading Emacs…</p>
+      <p class="loading">This example needs its server: run <code>examples/server/run.sh</code> and open
+         <code>http://127.0.0.1:8017/examples/server/</code>.</p>
+    </div>
+    <p class="source">Sources: <a href="app.el">app.el</a> (the page) · <a href="server.el">server.el</a> (the server) ·
+       <a href="notes.el">notes.el</a> (both) · <a href="../../">all examples</a></p>
+    <script type="text/emacs-lisp" src="notes.el"></script>
+    <script type="text/emacs-lisp" src="app.el"></script>
+    <script type="module" src="../../js/elisp-react.js"></script>
+  </body>
+</html>

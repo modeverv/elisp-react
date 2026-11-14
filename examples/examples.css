@@ -29,3 +29,6 @@ button.filter.selected { background: #5b3d8f; }
 .status { color: #8a8f98; }
 ul.quote-list { padding-left: 20px; }
 ul.quote-list cite { color: #8a8f98; }
+table.emacsen { border-collapse: collapse; margin: 12px 0; }
+table.emacsen th { text-align: left; color: #8a8f98; font-weight: normal; padding: 2px 16px 2px 0; white-space: nowrap; }
+code { background: #20232a; padding: 1px 5px; border-radius: 3px; }

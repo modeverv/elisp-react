@@ -60,11 +60,29 @@ examples/counter/      a component with state
 examples/counters/     state in a parent, props down, events up, a list, a controlled input
 examples/todo/         a TODO list: jsx, keyed rows with state of their own, filters, reordering, localStorage
 examples/async/        an interval, a timeout, a countdown and a fetch written with async/await
+examples/server/       Emacs on both ends: a native Emacs is the web server and keeps the data
 test/react-test.el     tests of the reconciler with a native Emacs, no browser
 test/e2e.mjs           the examples in headless Chrome
 doc/design.md          how it works
 doc/experiment-notes.md  what the experiment shows so far (Japanese)
 ```
+
+## Emacs on both ends
+
+`examples/server/` is an application without any JavaScript or build step of its own: a native Emacs process is the web server and keeps the data, the Emacs in the browser draws the page, and they exchange printed Lisp data instead of JSON.
+
+```sh
+examples/server/run.sh          # or: M-x load-file server.el, M-x elisp-react-server-start
+# then open the URL it prints: http://127.0.0.1:8017/examples/server/
+```
+
+```text
+examples/server/server.el   the server: HTTP in Emacs Lisp (make-network-process), files and a small API
+examples/server/app.el      the page: components that ask the server with react-fetch / react-async
+examples/server/notes.el    loaded by both: the functions that change the list, and the check of a note's text
+```
+
+A request body is an action such as `(add "text")`; the server `read`s it as data (it evaluates nothing it is sent), applies it with the shared function, saves the list as an `.eld` file and answers with the new list, which the page `read`s into its state. The server listens on 127.0.0.1 only and refuses requests made by pages of other sites. Run inside the Emacs you are using, `/api/buffers` and friends can show that Emacs's own state to a page.
 
 ## API
 
@@ -125,6 +143,7 @@ Props of DOM elements: `:on-click`, `:on-input`, `:on-submit`, ... are listeners
 npm run serve        # http://localhost:5180/examples/counter/
 npm run test:lisp    # the reconciler, with a native Emacs
 npm run test:e2e     # the examples in headless Chrome
+npm run test:server  # the server example: an Emacs server process and Chrome
 ```
 
 With a wasmacs checkout next to this one (`../wasmacs/docs`), the server and the browser test load Emacs from there; otherwise from the public wasmacs site.

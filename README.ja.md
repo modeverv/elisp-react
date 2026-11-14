@@ -60,11 +60,29 @@ examples/counter/      state を持つコンポーネント
 examples/counters/     親が state を持ち、props で渡し、イベントで戻す例。リストと入力欄つき
 examples/todo/         TODO リスト。jsx、自分の state を持つ key つきの行、フィルタ、並べ替え、localStorage への保存
 examples/async/        インターバル、タイムアウト、async/await で書いたカウントダウンと fetch
+examples/server/       両側が Emacs。ネイティブの Emacs が Web サーバーになり、データを持つ
 test/react-test.el     差分計算のテスト（ネイティブの Emacs で実行。ブラウザ不要）
 test/e2e.mjs           サンプルを headless Chrome で動かすテスト
 doc/design.md          仕組み（英語）
 doc/experiment-notes.md  ここまでの実験で分かったこと
 ```
+
+## 両側が Emacs
+
+`examples/server/` は、独自の JavaScript もビルドもないアプリケーションです。ネイティブの Emacs プロセスが Web サーバーになってデータを持ち、ブラウザの中の Emacs がページを描画します。両者は JSON ではなく、印字した Lisp データをやり取りします。
+
+```sh
+examples/server/run.sh          # または M-x load-file server.el のあと M-x elisp-react-server-start
+# 表示された URL を開きます: http://127.0.0.1:8017/examples/server/
+```
+
+```text
+examples/server/server.el   サーバー。Emacs Lisp で書いた HTTP（make-network-process）、ファイル配信と小さな API
+examples/server/app.el      ページ。react-fetch / react-async でサーバーに問い合わせるコンポーネント
+examples/server/notes.el    両方が読み込む。リストを変更する関数と、メモの文字列の検査
+```
+
+リクエストの本文は `(add "text")` のようなアクションです。サーバーはそれをデータとして `read` し（送られてきたものを評価することはありません）、共有している関数で適用し、リストを `.eld` ファイルに保存して、新しいリストを返します。ページはそれを `read` して state に入れます。サーバーは 127.0.0.1 でだけ待ち受け、他サイトのページからのリクエストは拒否します。普段使っている Emacs の中で起動すれば、`/api/buffers` のように、その Emacs 自身の状態をページに見せることもできます。
 
 ## API
 
@@ -125,6 +143,7 @@ DOM 要素の props: `:on-click`、`:on-input`、`:on-submit` などはイベン
 npm run serve        # http://localhost:5180/examples/counter/
 npm run test:lisp    # 差分計算のテスト（ネイティブの Emacs）
 npm run test:e2e     # サンプルを headless Chrome で実行
+npm run test:server  # サーバーのサンプル（Emacs のサーバープロセスと Chrome）
 ```
 
 このリポジトリの隣に wasmacs のチェックアウト（`../wasmacs/docs`）があれば、開発サーバーとブラウザテストはそこから Emacs を読み込みます。なければ wasmacs の公開サイトから読み込みます。

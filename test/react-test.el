@@ -700,5 +700,51 @@
     (react-test--load-example "counters/counters.el")
     (should (string-match-p "2 counters, total 3" (react-html "#app")))))
 
+;;;; The server example
+
+(ert-deftest react-test-notes-model ()
+  "examples/server/notes.el: pure functions, shared by server and page."
+  (react-test--load-example "server/notes.el")
+  (let* ((notes '((:id 1 :text "a" :done nil) (:id 4 :text "b" :done t)))
+         (copy (copy-tree notes)))
+    (should (equal (notes-apply notes '(add "  c  "))
+                   '((:id 1 :text "a" :done nil) (:id 4 :text "b" :done t) (:id 5 :text "c" :done nil))))
+    (should (equal (notes-apply notes '(toggle 4)) '((:id 1 :text "a" :done nil) (:id 4 :text "b" :done nil))))
+    (should (equal (notes-apply notes '(remove 1)) '((:id 4 :text "b" :done t))))
+    (should (equal notes copy))
+    (should-error (notes-apply notes '(add "   ")))
+    (should-error (notes-apply notes '(add 5)))
+    (should-error (notes-apply notes '(eval (kill-emacs))))
+    (should-error (notes-apply notes (list 'add (make-string 201 ?x))))))
+
+(ert-deftest react-test-server-api ()
+  "examples/server/server.el answers with Lisp data and never evaluates."
+  (react-test--load-example "server/server.el")
+  (let ((elisp-react-server-data-file (make-temp-file "elisp-react-notes" nil ".eld"))
+        (elisp-react-server--notes 'unread)
+        (elisp-react-server--started (current-time)))
+    (delete-file elisp-react-server-data-file)
+    (unwind-protect
+        (progn
+          (should (= 2 (length (elisp-react-server--api "GET" "/api/notes" ""))))
+          (should (equal (plist-get (car (last (elisp-react-server--api "POST" "/api/notes" "(add \"saved\")"))) :text)
+                         "saved"))
+          ;; Saved, and read again by a server that starts later.
+          (setq elisp-react-server--notes 'unread)
+          (should (= 3 (length (elisp-react-server--api "GET" "/api/notes" ""))))
+          (should (equal (plist-get (elisp-react-server--api "GET" "/api/info" "") :notes) 3))
+          (should-error (elisp-react-server--api "POST" "/api/notes" "(eval (delete-file \"x\"))"))
+          (should-error (elisp-react-server--api "GET" "/api/nothing" "") :type 'file-missing)
+          ;; Files: inside the repository, nothing hidden.
+          (should (elisp-react-server--file "/examples/server/app.el"))
+          (should (elisp-react-server--file "/examples/counter/"))
+          (should-not (elisp-react-server--file "/.gitignore"))
+          (should-not (elisp-react-server--file "/.git/config"))
+          (should-not (elisp-react-server--file "/../outside"))
+          (should (elisp-react-server--same-origin-p nil))
+          (should (elisp-react-server--same-origin-p (list (cons "origin" (format "http://127.0.0.1:%d" elisp-react-server-port)))))
+          (should-not (elisp-react-server--same-origin-p '(("origin" . "https://example.com")))))
+      (ignore-errors (delete-file elisp-react-server-data-file)))))
+
 (provide 'react-test)
 ;;; react-test.el ends here
