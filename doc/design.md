@@ -25,6 +25,19 @@ An element is a list `(TAG PROPS CHILD...)`. `TAG` is a symbol: the name of a co
 
 Nothing has to be registered or compiled to write an element: it is quoted data, and backquote fills in the dynamic parts.
 
+## jsx
+
+`(jsx MARKUP)` is a macro that expands markup into the `list` calls that build the same plain element:
+
+```elisp
+(jsx (p (:id name) (upcase name)))   ; expands to
+(list 'p (list :id name) (upcase name))
+```
+
+The macro has to tell markup from Lisp without evaluating anything. A list is markup if it starts with an HTML tag (a fixed list, `react-html-tags`) or with a Capitalized symbol, which is a component as in JSX. Whether a symbol names a component cannot be asked at expansion time: a component may be defined later, or be the one being defined. Everything else is Lisp and is left alone, so markup nested in Lisp (`when`, `mapcar`, a helper function) needs its own `jsx`.
+
+The plain-list form remains the foundation and has no naming rule; `jsx` is a convenience on top.
+
 ## The mounted tree
 
 `react.el` remembers what is on the page as a tree of three structures:
@@ -42,7 +55,19 @@ Text and host nodes carry a `dom-id`, a number Lisp chooses. That number is all 
 - Same kind (text; same tag; same component; equal `:key`): update in place. Text: one `set-text` if the string differs. Element: diff the props, then the children. Component: store the new props, call `:render`, reconcile what it rendered before with the new result.
 - Otherwise: mount the new element, emit `replace`, unmount the old node (which runs `:will-unmount` below it).
 
-Children are matched by position: the n-th old child with the n-th new one; surplus old children are removed, surplus new ones mounted and inserted.
+### Children and keys
+
+Each child has an identity among its siblings: `(key . K)` if it has a `:key`, otherwise `(index . N)` as the N-th child without a key. A new child takes over the old child with the same identity. A list without keys is therefore matched by position; a keyed child is found wherever it was.
+
+`react--update-children` works in three steps:
+
+1. In the new order, update the old child of each identity (it keeps its DOM node and the state below it) or mount a new one.
+2. Remove the old children nobody took over.
+3. Place. The kept children that are still in their old order relative to each other need no DOM operation. A longest such set is a longest increasing subsequence of old positions (`react--longest-increasing`, O(n log n)). Every other child, new or out of order, is inserted in front of the child that follows it, going from the last child to the first.
+
+Moving the last of n rows to the front is one `insert`. (React's original "last index" rule moves the other n-1 rows in that case.)
+
+`test/react-test.el` checks this against a model of the DOM: 300 rounds of random removals, additions and shuffles, applying the operations to the model and comparing it with the mounted tree, while clicks on random rows verify that state follows the keys.
 
 `react-set-state` installs a new state plist, marks the instance dirty and queues it. Nothing renders yet. `react-flush` renders the dirty instances, parents first (a parent's render updates its children, which clears their mark), then runs `:did-mount` functions, and repeats while those changed more state. So several `react-set-state` calls in one event handler cause one render.
 

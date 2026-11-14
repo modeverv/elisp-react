@@ -187,5 +187,273 @@
     (should (string-prefix-p "[[\"create\",1,\"div\"],[\"attr\",1,\"class\",\"counter\"]"
                              (json-serialize (react-flush) :null-object nil :false-object :false)))))
 
+
+;;;; Keyed children
+
+(defvar react-test--set-items nil)
+
+(react-define-component 'react-test-note
+  ;; A row with state of its own: how often it was clicked.
+  :initial-state (lambda (_props) (list :clicks 0))
+  :render (lambda (self)
+            `(li (:on-click ,(lambda (_event) (react-set-state self :clicks (1+ (react-state self :clicks)))))
+               ,(format "%s:%d" (react-props self :name) (react-state self :clicks)))))
+
+(react-define-component 'react-test-notes
+  :initial-state (lambda (props) (list :items (plist-get props :items)))
+  :render (lambda (self)
+            (setq react-test--set-items (lambda (items) (react-set-state self :items items)))
+            `(ul () ,@(mapcar (lambda (name)
+                                (if (eq (react-props self :keyed) :false)
+                                    `(react-test-note (:name ,name))
+                                  `(react-test-note (:key ,name :name ,name))))
+                              (react-state self :items)))))
+
+(defun react-test--row-ids (ops)
+  "The DOM ids of the rows, in the order they were created."
+  (mapcar #'cadr (react-test--find "create" (cl-remove-if-not (lambda (op) (equal (nth 2 op) "li")) ops))))
+
+(ert-deftest react-test-keys-reorder ()
+  "Keyed children keep their DOM nodes and state when the order changes."
+  (react-test--fresh
+    (react-mount '(react-test-notes (:items ("a" "b" "c" "d"))) "#app")
+    (let* ((ids (react-test--row-ids (react-test--ops)))
+           (b (nth 1 ids)) (d (nth 3 ids)))
+      (react-dispatch-event b "click" nil)
+      (react-dispatch-event b "click" nil)
+      (react-dispatch-event d "click" nil)
+      ;; The last row to the front: one move, nothing created or removed.
+      (funcall react-test--set-items '("d" "a" "b" "c"))
+      (let ((ops (react-test--ops)))
+        (should (equal ops `(("insert" 1 ,d ,(nth 0 ids)))))
+        (should (equal (react-html "#app") "<ul><li>d:1</li><li>a:0</li><li>b:2</li><li>c:0</li></ul>")))
+      ;; Reversed.
+      (funcall react-test--set-items '("c" "b" "a" "d"))
+      (let ((ops (react-test--ops)))
+        (should (equal (react-test--find "create" ops) nil))
+        (should (equal (react-test--find "remove" ops) nil))
+        (should (equal (react-html "#app") "<ul><li>c:0</li><li>b:2</li><li>a:0</li><li>d:1</li></ul>")))
+      ;; The same nodes still answer.
+      (react-dispatch-event b "click" nil)
+      (should (string-match-p "<li>b:3</li>" (react-html "#app"))))))
+
+(ert-deftest react-test-keys-insert-and-remove ()
+  "Rows in the middle come and go; the others keep their state."
+  (react-test--fresh
+    (react-mount '(react-test-notes (:items ("a" "b" "c"))) "#app")
+    (let* ((ids (react-test--row-ids (react-test--ops)))
+           (c (nth 2 ids)))
+      (react-dispatch-event c "click" nil)
+      (funcall react-test--set-items '("a" "c"))
+      (let ((ops (react-test--ops)))
+        (should (equal ops `(("remove" ,(nth 1 ids)))))
+        (should (equal (react-html "#app") "<ul><li>a:0</li><li>c:1</li></ul>")))
+      (funcall react-test--set-items '("new" "a" "x" "c" "z"))
+      (let ((ops (react-test--ops)))
+        (should (= (length (react-test--find "create" ops)) 3))
+        (should (= (length (react-test--find "insert" ops)) (+ 3 3)))   ; three rows, their three texts
+        (should (equal (react-test--find "remove" ops) nil))
+        (should (equal (react-html "#app") "<ul><li>new:0</li><li>a:0</li><li>x:0</li><li>c:1</li><li>z:0</li></ul>")))
+      (react-dispatch-event c "click" nil)
+      (should (string-match-p "<li>c:2</li>" (react-html "#app"))))))
+
+(ert-deftest react-test-without-keys-state-stays-in-place ()
+  "Without keys children are matched by position: state does not follow a row."
+  (react-test--fresh
+    (react-mount '(react-test-notes (:keyed :false :items ("a" "b" "c"))) "#app")
+    (let ((ids (react-test--row-ids (react-test--ops))))
+      (react-dispatch-event (nth 0 ids) "click" nil)
+      (funcall react-test--set-items '("b" "c"))
+      ;; The first row is still the first row, now showing "b" with a's clicks.
+      (should (equal (react-html "#app") "<ul><li>b:1</li><li>c:0</li></ul>")))))
+
+(ert-deftest react-test-keys-mixed-with-unkeyed ()
+  "Keyed and unkeyed siblings: keys by key, the rest by their order."
+  (react-test--fresh
+    (let (set)
+      (react-define-component 'react-test-mixed
+        :initial-state (lambda (_props) (list :rows '("a" "b")))
+        :render (lambda (self)
+                  (setq set (lambda (rows) (react-set-state self :rows rows)))
+                  `(div ()
+                     (h2 () "title")
+                     ,@(mapcar (lambda (row) `(p (:key ,row) ,row)) (react-state self :rows))
+                     (footer () ,(format "%d rows" (length (react-state self :rows)))))))
+      (react-mount '(react-test-mixed) "#app")
+      (react-flush)
+      (funcall set '("b" "c" "a"))
+      (let ((ops (react-test--ops)))
+        (should (= (length (react-test--find "create" ops)) 1))
+        (should (equal (react-test--find "remove" ops) nil))
+        (should (equal (react-html "#app")
+                       "<div><h2>title</h2><p>b</p><p>c</p><p>a</p><footer>3 rows</footer></div>"))))))
+
+;;;; The operations against a model of the DOM
+
+;; What the JavaScript host does with the operations, in Lisp: enough of a
+;; DOM to check that the page ends up as the mounted tree says.
+
+(defvar react-test--dom nil "DOM id -> (:tag T | :text S, :children IDS, :parent ID).")
+(defvar react-test--dom-root nil)
+
+(defun react-test--dom-detach (id)
+  (let* ((node (gethash id react-test--dom))
+         (parent (plist-get node :parent)))
+    (when parent
+      (let ((parent-node (gethash parent react-test--dom)))
+        (puthash parent (plist-put parent-node :children (remq id (plist-get parent-node :children)))
+                 react-test--dom)))
+    (puthash id (plist-put node :parent nil) react-test--dom)))
+
+(defun react-test--dom-apply (ops)
+  (dolist (op ops)
+    (pcase op
+      (`("create" ,id ,tag) (puthash id (list :tag tag :children nil :parent nil) react-test--dom))
+      (`("text" ,id ,text) (puthash id (list :text text :parent nil) react-test--dom))
+      (`("set-text" ,id ,text) (puthash id (plist-put (gethash id react-test--dom) :text text) react-test--dom))
+      (`("insert" ,parent ,id ,before)
+       (react-test--dom-detach id)
+       (let* ((parent-node (gethash parent react-test--dom))
+              (children (plist-get parent-node :children))
+              (tail (and before (or (memq before children) (error "insert before a node that is not a child")))))
+         (puthash parent
+                  (plist-put parent-node :children
+                             (append (butlast children (length tail)) (list id) tail))
+                  react-test--dom)
+         (puthash id (plist-put (gethash id react-test--dom) :parent parent) react-test--dom)))
+      (`("replace" ,old ,id)
+       (let* ((parent (plist-get (gethash old react-test--dom) :parent))
+              (parent-node (and parent (gethash parent react-test--dom))))
+         (react-test--dom-detach id)
+         (when parent
+           (puthash parent (plist-put parent-node :children
+                                      (mapcar (lambda (child) (if (eq child old) id child))
+                                              (plist-get parent-node :children)))
+                    react-test--dom)
+           (puthash id (plist-put (gethash id react-test--dom) :parent parent) react-test--dom))
+         (when (eq react-test--dom-root old) (setq react-test--dom-root id))
+         (remhash old react-test--dom)))
+      (`("remove" ,id) (react-test--dom-detach id) (remhash id react-test--dom))
+      (`("mount" ,_selector ,id) (setq react-test--dom-root id))
+      (`(,(or "attr" "prop" "listen" "unlisten") . ,_) nil)
+      (_ (error "Unknown operation %S" op)))))
+
+(defun react-test--dom-html (id)
+  (let ((node (gethash id react-test--dom)))
+    (if (plist-member node :text)
+        (plist-get node :text)
+      (format "<%s>%s</%s>" (plist-get node :tag)
+              (mapconcat #'react-test--dom-html (plist-get node :children) "")
+              (plist-get node :tag)))))
+
+(ert-deftest react-test-random-lists-reach-the-dom ()
+  "Random insertions, removals and shuffles: the DOM follows, state follows keys."
+  (react-test--fresh
+    (setq react-test--dom (make-hash-table) react-test--dom-root nil)
+    (random "elisp-react")
+    (let ((items '("k0" "k1" "k2" "k3" "k4"))
+          (next 5)
+          (clicks (make-hash-table :test #'equal)))
+      (react-mount `(react-test-notes (:items ,items)) "#app")
+      (react-test--dom-apply (react-test--ops))
+      (dotimes (_ 300)
+        ;; A new list: drop some rows, add some, shuffle.
+        (setq items (cl-remove-if (lambda (_item) (= 0 (random 4))) items))
+        (dotimes (_ (random 3))
+          (push (format "k%d" (cl-incf next)) items))
+        (setq items (mapcar #'cdr (sort (mapcar (lambda (item) (cons (random 1000) item)) items)
+                                        (lambda (a b) (< (car a) (car b))))))
+        (funcall react-test--set-items items)
+        (react-test--dom-apply (react-test--ops))
+        ;; Click a random row through the id its DOM node has now.
+        (when items
+          (let* ((index (random (length items)))
+                 (row (nth index (plist-get (gethash react-test--dom-root react-test--dom) :children))))
+            (puthash (nth index items) (1+ (gethash (nth index items) clicks 0)) clicks)
+            (react-test--dom-apply (mapcar (lambda (op) (append op nil)) (react-dispatch-event row "click" nil)))))
+        ;; Rows that are gone lose their state for good.
+        (maphash (lambda (key _count) (unless (member key items) (remhash key clicks))) clicks)
+        (let ((expected (format "<ul>%s</ul>"
+                                (mapconcat (lambda (item) (format "<li>%s:%d</li>" item (gethash item clicks 0)))
+                                           items ""))))
+          (should (equal (react-html "#app") expected))
+          (should (equal (react-test--dom-html react-test--dom-root) expected)))))))
+
+;;;; jsx
+
+(ert-deftest react-test-jsx-builds-plain-lists ()
+  "`jsx' builds the list a backquote would build."
+  (let ((count 3) (items '("x" "y")))
+    (should (equal (jsx (div (:class "box" :title (format "n=%d" count))
+                          "text"
+                          count
+                          (p (format "Count: %d" count))
+                          (when (> count 5) (jsx (strong "many")))
+                          (mapcar (lambda (item) (jsx (li (:key item) item))) items)
+                          (Fancy-button (:label "ok") (span "child"))))
+                   `(div (:class "box" :title "n=3")
+                      "text"
+                      3
+                      (p nil "Count: 3")
+                      nil
+                      ((li (:key "x") "x") (li (:key "y") "y"))
+                      (Fancy-button (:label "ok") (span nil "child")))))
+    (should (equal (jsx (br)) '(br nil)))
+    (should (equal (macroexpand '(jsx (p (:id name) (upcase name))))
+                   '(list 'p (list :id name) (upcase name))))
+    (should-error (macroexpand '(jsx (format "not markup"))))
+    (should-error (macroexpand '(jsx (p (:id "a" oops)))))))
+
+(ert-deftest react-test-jsx-renders ()
+  "Components written with `jsx' render and update like the others."
+  (react-test--fresh
+    (react-define-component 'React-test-greeting
+      :render (lambda (self) (jsx (em (react-props self :children)))))
+    (react-define-component 'React-test-toggle
+      :initial-state (lambda (_props) (list :on nil))
+      :render (lambda (self)
+                (jsx (div (:on-click (lambda (_event) (react-set-state self :on (not (react-state self :on)))))
+                       (React-test-greeting "hello, " (if (react-state self :on) "on" "off"))
+                       (and (react-state self :on) (jsx (b "!")))))))
+    (react-mount (jsx (React-test-toggle)) "#app")
+    (let ((div (car (react-test--listener "click" (react-test--ops)))))
+      (should (equal (react-html "#app") "<div><em>hello, off</em></div>"))
+      (react-dispatch-event div "click" nil)
+      (should (equal (react-html "#app") "<div><em>hello, on</em><b>!</b></div>")))))
+
+(ert-deftest react-test-plist-with ()
+  (let ((todo '(:id 1 :text "a" :done nil)))
+    (should (equal (react-plist-with todo :done t :text "b") '(:id 1 :text "b" :done t)))
+    (should (equal todo '(:id 1 :text "a" :done nil)))))
+
+;;;; The examples load and render
+
+(defun react-test--load-example (name)
+  (load (expand-file-name (format "../examples/%s" name)
+                          (file-name-directory (or load-file-name buffer-file-name (locate-library "react-test"))))
+        nil t))
+
+(ert-deftest react-test-example-todo ()
+  "examples/todo/todo.el renders; its list functions never modify their input."
+  (react-test--fresh
+    (react-test--load-example "todo/todo.el")
+    (should (string-match-p "<span class=\"left\">2 items left</span>" (react-html "#app")))
+    (should (= 3 (length (react-test--find "create" (cl-remove-if-not (lambda (op) (equal (nth 2 op) "li"))
+                                                                         (react-test--ops))))))
+    (let* ((todos '((:id 1 :text "a" :done nil) (:id 2 :text "b" :done t) (:id 3 :text "c" :done nil)))
+           (copy (copy-tree todos)))
+      (should (equal (mapcar (lambda (todo) (plist-get todo :id)) (todo-move-before todos 3 1)) '(3 1 2)))
+      (should (equal (todo-visible todos 'active) '((:id 1 :text "a" :done nil) (:id 3 :text "c" :done nil))))
+      (should (equal (plist-get (nth 1 (todo-change todos 2 (lambda (todo) (react-plist-with todo :done nil)))) :done) nil))
+      (should (equal todos copy)))))
+
+(ert-deftest react-test-examples-counters ()
+  (react-test--fresh
+    (react-test--load-example "counter/counter.el")
+    (should (string-match-p "Apples: 3" (react-html "#app"))))
+  (react-test--fresh
+    (react-test--load-example "counters/counters.el")
+    (should (string-match-p "2 counters, total 3" (react-html "#app")))))
+
 (provide 'react-test)
 ;;; react-test.el ends here

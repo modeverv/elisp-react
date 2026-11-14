@@ -10,3 +10,17 @@ a { color: #82aaff; }
 button { font: inherit; padding: 4px 14px; border: 0; border-radius: 4px; background: #5b3d8f; color: #fff; cursor: pointer; }
 button:disabled { background: #33363d; color: #777; cursor: default; }
 input { font: inherit; padding: 4px 8px; border: 1px solid #444; border-radius: 4px; background: #111; color: inherit; }
+form.new, form.edit { display: flex; gap: 8px; flex: 1; }
+form.new { margin: 12px 0; }
+form.new input, form.edit input { flex: 1; }
+ul.todos { list-style: none; margin: 0; padding: 0; }
+li.todo { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin: 6px 0;
+          background: #20232a; border-radius: 6px; }
+li.todo .text { flex: 1; }
+li.todo.done .text { text-decoration: line-through; color: #8a8f98; }
+li.todo button { padding: 2px 10px; background: #33363d; }
+li.todo button.save { background: #5b3d8f; }
+footer.status { display: flex; align-items: center; gap: 8px; margin: 14px 0; color: #8a8f98; }
+footer.status .left { flex: 1; }
+button.filter { background: #33363d; }
+button.filter.selected { background: #5b3d8f; }

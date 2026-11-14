@@ -28,13 +28,24 @@
 ;;                         plist (:type "click" :value ... :checked ... :key ...)
 ;;   :value :checked       DOM properties (controlled inputs)
 ;;   :style                a string, or a plist (:color "red" :margin-top "4px")
-;;   :key                  not rendered
+;;   :key                  not rendered; identifies a child among its
+;;                         siblings (see below)
 ;;   anything else         an attribute; nil removes it, t sets it empty
 ;;
 ;; Among the children, nil is skipped and a list of elements (what `mapcar'
 ;; returns) is spliced in.  Backquote does the rest:
 ;;
 ;;   `(ul () ,@(mapcar (lambda (item) `(li () ,item)) items))
+;;
+;; or the `jsx' macro, which needs no commas:
+;;
+;;   (jsx (ul (mapcar (lambda (item) (jsx (li item))) items)))
+;;
+;; Children of a list that changes (rows that are added, removed, sorted)
+;; get a :key each: (li (:key ID) ...).  On the next render a child with the
+;; same key is the same child: it keeps its DOM node and its components keep
+;; their state, wherever it now stands.  Without keys children are matched
+;; by position.
 
 ;;; Components
 ;;
@@ -139,6 +150,69 @@ children reach the component as the prop :children."
 
 (defun react--text-of (vnode)
   (if (stringp vnode) vnode (format "%s" vnode)))
+
+;;;; jsx
+
+(defconst react-html-tags
+  '(a abbr address area article aside audio b bdi bdo blockquote body br button canvas caption
+    cite code col colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset
+    figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img
+    input ins kbd label legend li link main map mark menu meta meter nav noscript object ol
+    optgroup option output p picture pre progress q rp rt ruby s samp script search section
+    select slot small source span strong style sub summary sup table tbody td template
+    textarea tfoot th thead time title tr track u ul var video wbr)
+  "The HTML elements that `jsx' recognises.")
+
+(defun react--jsx-element-p (form)
+  "Non-nil if FORM is markup for `jsx': (TAG ...) or (Component ...)."
+  (and (consp form) (symbolp (car form)) (car form)
+       (or (memq (car form) react-html-tags)
+           (let ((first (aref (symbol-name (car form)) 0)))
+             (and (<= ?A first) (<= first ?Z))))))
+
+(defun react--jsx (form)
+  "The Lisp expression that builds the element which FORM describes."
+  (if (not (react--jsx-element-p form))
+      form
+    (let* ((rest (cdr form))
+           (has-props (and rest (or (null (car rest)) (and (consp (car rest)) (keywordp (caar rest))))))
+           (props (and has-props (car rest)))
+           (children (if has-props (cdr rest) rest))
+           prop-forms)
+      (while props
+        (unless (keywordp (car props)) (error "jsx: %S is not a prop name in %S" (car props) form))
+        (push (car props) prop-forms)
+        (push (react--jsx (cadr props)) prop-forms)
+        (setq props (cddr props)))
+      `(list ',(car form)
+             ,(and prop-forms `(list ,@(nreverse prop-forms)))
+             ,@(mapcar #'react--jsx children)))))
+
+(defmacro react-jsx (form)
+  "Build an element from markup, without backquote and commas.
+
+  (jsx (div (:class \"counter\")
+         (p (format \"Count: %d\" count))
+         (button (:on-click (lambda (_event) (increment))) \"+1\")
+         (when (> count 9) (jsx (strong \"a lot\")))
+         (Badge (:text label))))
+
+FORM and everything in it is read like this:
+
+- A list that starts with an HTML tag (`react-html-tags') or with a
+  Capitalized symbol is an element: (TAG PROPS CHILD...) or (TAG CHILD...).
+  Capitalized names are components, as in JSX.  The prop names are taken
+  as they are; the prop values and the children are read by these rules.
+- Anything else is Lisp and is evaluated: a variable, a string, a call
+  like (format ...) or (mapcar ...).  Its value may be an element, a list
+  of elements, text or nil.  Markup inside such Lisp needs `jsx' again.
+
+The value is the same plain list a backquote would build."
+  (unless (react--jsx-element-p form)
+    (error "jsx: %S does not start with an HTML tag or a Capitalized component name" form))
+  (react--jsx form))
+
+(defalias 'jsx #'react-jsx)
 
 ;;;; DOM element props
 
@@ -302,22 +376,93 @@ a replacement that has taken its place in the DOM."
     (react--rerender mounted)
     mounted)))
 
+(defun react--mounted-key (mounted)
+  "The :key that MOUNTED was rendered with, or nil."
+  (cond ((react--host-p mounted) (plist-get (react--host-props mounted) :key))
+        ((react--instance-p mounted) (plist-get (react--instance-props mounted) :key))))
+
+(defun react--vnode-key (vnode)
+  (and (consp vnode) (plist-get (react--element-props vnode) :key)))
+
+(defun react--identities (items key-function)
+  "How each of ITEMS is recognised among its siblings.
+A child with a :key is (key . KEY); one without is (index . N), the N-th
+child without a key.  A list without any keys is thus matched by position."
+  (let ((unkeyed -1))
+    (mapcar (lambda (item)
+              (let ((key (funcall key-function item)))
+                (if key (cons 'key key) (cons 'index (cl-incf unkeyed)))))
+            items)))
+
+(defun react--longest-increasing (numbers)
+  "Positions in the vector NUMBERS of a longest increasing subsequence.
+Returns a bool-vector: t at the positions that belong to it."
+  (let* ((n (length numbers))
+         (tails (make-vector n 0))      ; tails[k]: position where the best run of length k+1 ends
+         (previous (make-vector n -1))
+         (length 0)
+         (keep (make-bool-vector n nil)))
+    (dotimes (i n)
+      (let ((low 0) (high length))
+        (while (< low high)
+          (let ((middle (/ (+ low high) 2)))
+            (if (< (aref numbers (aref tails middle)) (aref numbers i))
+                (setq low (1+ middle))
+              (setq high middle))))
+        (when (> low 0) (aset previous i (aref tails (1- low))))
+        (aset tails low i)
+        (when (= low length) (setq length (1+ length)))))
+    (let ((i (if (> length 0) (aref tails (1- length)) -1)))
+      (while (>= i 0)
+        (aset keep i t)
+        (setq i (aref previous i))))
+    keep))
+
 (defun react--update-children (parent-id mounted vnodes depth)
   "Update the children MOUNTED of the DOM node PARENT-ID to VNODES.
-Children are matched by position.  Returns the new list of mounted children."
-  (let (out)
-    (while (or mounted vnodes)
-      (cond ((and mounted vnodes)
-             (push (react--update (car mounted) (car vnodes) depth) out))
-            (vnodes
-             (let ((new (react--mount (car vnodes) depth)))
-               (react--emit "insert" parent-id (react--dom-id new) nil)
-               (push new out)))
-            (t
-             (react--emit "remove" (react--dom-id (car mounted)))
-             (react--unmount (car mounted))))
-      (setq mounted (cdr mounted) vnodes (cdr vnodes)))
-    (nreverse out)))
+A new child takes over the old child with the same identity (see
+`react--identities'): that one keeps its DOM node and, below it, the
+state of its components, wherever it is in the new order.  Old children
+that nobody took over are removed, the rest is created.  Returns the new
+list of mounted children."
+  (let ((old (make-hash-table :test #'equal))
+        (seen (make-hash-table :test #'equal))
+        (index -1)
+        placed)                         ; (MOUNTED . old position or nil), last child first
+    (cl-mapc (lambda (identity child) (puthash identity (cons (cl-incf index) child) old))
+             (react--identities mounted #'react--mounted-key) mounted)
+    (cl-mapc
+     (lambda (identity vnode)
+       (let ((found (gethash identity old)))
+         (cond (found
+                (remhash identity old)
+                (push (cons (react--update (cdr found) vnode depth) (car found)) placed))
+               (t
+                (when (gethash identity seen)
+                  (message "react: two children have the key %S" (cdr identity)))
+                (push (cons (react--mount vnode depth) nil) placed)))
+         (puthash identity t seen)))
+     (react--identities vnodes #'react--vnode-key) vnodes)
+    ;; Nobody took these over.
+    (let (gone)
+      (maphash (lambda (_identity entry) (push entry gone)) old)
+      (dolist (entry (sort gone (lambda (a b) (< (car a) (car b)))))
+        (react--emit "remove" (react--dom-id (cdr entry)))
+        (react--unmount (cdr entry))))
+    ;; The old children that are still in their old order relative to each
+    ;; other (a longest such set) stay where they are.  Every other child,
+    ;; new or out of order, is put in front of the child that follows it,
+    ;; from the last child to the first.
+    (let* ((kept (delq nil (mapcar #'cdr placed)))   ; old positions, last child first
+           (stay (react--longest-increasing (vconcat (nreverse kept))))
+           (position (length stay))
+           before out)
+      (dolist (entry placed)
+        (unless (and (cdr entry) (aref stay (cl-decf position)))
+          (react--emit "insert" parent-id (react--dom-id (car entry)) before))
+        (setq before (react--dom-id (car entry)))
+        (push (car entry) out))
+      out)))
 
 (defun react--rerender (instance)
   "Render INSTANCE again and reconcile what it rendered before."
@@ -327,6 +472,16 @@ Children are matched by position.  Returns the new list of mounted children."
                        (1+ (react--instance-depth instance)))))
 
 ;;;; State
+
+(defun react-plist-with (plist &rest changes)
+  "A new plist: PLIST with the keys of CHANGES (a plist) set.
+PLIST is not modified.  State and the records in it are changed this way:
+  (react-plist-with todo :done t)"
+  (let ((new (copy-sequence plist)))
+    (while changes
+      (setq new (plist-put new (car changes) (cadr changes)))
+      (setq changes (cddr changes)))
+    new))
 
 (defun react-props (self &optional key)
   "The props of the component instance SELF, or the prop KEY."
@@ -344,11 +499,7 @@ returns the plist to merge.  The old state plist is not modified.
 Several changes during one event cause one render."
   (when (and (functionp (car changes)) (null (cdr changes)))
     (setq changes (funcall (car changes) (react--instance-state self))))
-  (let ((state (copy-sequence (react--instance-state self))))
-    (while changes
-      (setq state (plist-put state (car changes) (cadr changes)))
-      (setq changes (cddr changes)))
-    (setf (react--instance-state self) state))
+  (setf (react--instance-state self) (apply #'react-plist-with (react--instance-state self) changes))
   (when (and (react--instance-mounted self) (not (react--instance-dirty self)))
     (setf (react--instance-dirty self) t)
     (push self react--dirty))

@@ -144,6 +144,73 @@ try {
   assert.deepEqual(await text(".total"), ["2 counters, total 2"]);
   pass("counters: removing a row keeps the others working");
 
+  // ---- todo -----------------------------------------------------------------
+  await open("/examples/todo/");
+  const todoTexts = () => text("li.todo .text");
+  const typeInto = (selector, value) => js(`(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    input.value = ${JSON.stringify(value)};
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  assert.deepEqual(await todoTexts(), ["Write React in Emacs Lisp", "Give the rows keys", "Try it in a browser"]);
+  assert.deepEqual(await text(".left"), ["2 items left"]);
+  assert.deepEqual(await js("[...document.querySelectorAll('.toggle')].map((node) => node.checked)"), [true, false, false]);
+
+  await typeInto(".new-text", "Sort the list");
+  await until("document.querySelector('.add').disabled === false", "typing enables add");
+  await js("document.querySelector('form.new').requestSubmit(); true");
+  await until("document.querySelectorAll('li.todo').length === 4", "a todo is added");
+  assert.equal((await todoTexts())[3], "Sort the list");
+  assert.equal(await js("document.querySelector('.new-text').value"), "");
+  assert.deepEqual(await text(".left"), ["3 items left"]);
+  pass("todo: the form adds a todo");
+
+  await click(".toggle", 1);
+  await until("document.querySelector('.left').textContent === '2 items left'", "toggling a todo");
+  assert.deepEqual(await js("[...document.querySelectorAll('li.todo')].map((node) => node.classList.contains('done'))"),
+    [true, true, false, false]);
+  pass("todo: a checkbox toggles a todo");
+
+  // Keys: tag every row, start editing the last one (state of that row
+  // alone), then move rows around it.  The row keeps its DOM node and its
+  // half-typed text.
+  await js("document.querySelectorAll('li.todo').forEach((node) => { node.dataset.row = node.querySelector('.text').textContent; }); true");
+  await click(".edit-button", 3);
+  await until("Boolean(document.querySelector('.edit-text'))", "a row switches to editing");
+  await typeInto(".edit-text", "Sort the list (half typed");
+  await click(".up", 2);       // "Try it in a browser" moves above "Give the rows keys"
+  await until("document.querySelectorAll('li.todo .text')[1]?.textContent === 'Try it in a browser'", "a row moves up");
+  await click(".delete", 0);   // the first row goes
+  await until("document.querySelectorAll('li.todo').length === 3", "a row is deleted");
+  assert.deepEqual(await js("[...document.querySelectorAll('li.todo')].map((node) => node.dataset.row)"),
+    ["Try it in a browser", "Give the rows keys", "Sort the list"]);
+  assert.equal(await js("document.querySelector('li.todo.editing').dataset.row"), "Sort the list");
+  assert.equal(await js("document.querySelector('.edit-text').value"), "Sort the list (half typed");
+  pass("todo: keyed rows keep their DOM nodes and their own state while rows move and disappear");
+
+  await typeInto(".edit-text", "Sort the list by hand");
+  await js("document.querySelector('form.edit').requestSubmit(); true");
+  await until("!document.querySelector('.edit-text')", "saving ends the edit");
+  assert.deepEqual(await todoTexts(), ["Try it in a browser", "Give the rows keys", "Sort the list by hand"]);
+  pass("todo: an edited row is renamed");
+
+  // Filters remove rows from the page and bring them back.
+  await js("document.querySelector('[data-filter=active]').click(); true");
+  await until("document.querySelectorAll('li.todo').length === 2", "the active filter");
+  assert.deepEqual(await todoTexts(), ["Try it in a browser", "Sort the list by hand"]);
+  await js("document.querySelector('[data-filter=done]').click(); true");
+  await until("document.querySelectorAll('li.todo').length === 1", "the done filter");
+  assert.deepEqual(await todoTexts(), ["Give the rows keys"]);
+  await js("document.querySelector('[data-filter=all]').click(); true");
+  await until("document.querySelectorAll('li.todo').length === 3", "all again");
+  assert.deepEqual(await todoTexts(), ["Try it in a browser", "Give the rows keys", "Sort the list by hand"]);
+  assert.deepEqual(await text(".clear"), ["clear done (1)"]);
+  await click(".clear");
+  await until("document.querySelectorAll('li.todo').length === 2 && !document.querySelector('.clear')", "clearing done todos");
+  assert.deepEqual(await text(".left"), ["2 items left"]);
+  pass("todo: filters and clearing done todos");
+
   assert.deepEqual(pageErrors, []);
   assert.equal(await js("document.querySelector('#elisp-react-error')"), null);
   pass("no page errors");

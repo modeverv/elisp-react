@@ -34,13 +34,31 @@ Emacs Lisp で書いた React です。
 
 ビルドは不要です。ページ内の `<script type="text/emacs-lisp">`（`src` 指定でもインラインでも可）を、Emacs が文書の順に評価します。
 
+上の要素は、バッククォートで作ったただのデータです。`jsx` マクロを使うと、同じものをカンマなしで書けます。HTML タグか大文字で始まるコンポーネント名で始まるリストがマークアップで、それ以外はすべて Lisp として評価されます。
+
+```elisp
+(react-define-component 'Counter
+  :initial-state (lambda (props) (list :count (or (plist-get props :start) 0)))
+  :render
+  (lambda (self)
+    (jsx (div (:class "counter")
+           (p (format "Count: %d" (react-state self :count)))
+           (button (:on-click (lambda (_event)
+                                (react-set-state self :count (1+ (react-state self :count)))))
+             "+1")
+           (when (> (react-state self :count) 9) (jsx (strong "a lot")))))))
+
+(react-mount (jsx (Counter (:start 3))) "#app")
+```
+
 ## 構成
 
 ```text
-lisp/react.el          React 本体: 要素、コンポーネント、state、差分計算（Emacs Lisp 450行）
+lisp/react.el          React 本体: 要素、jsx、コンポーネント、state、key つきの差分計算（Emacs Lisp 600行）
 js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送（210行）
 examples/counter/      state を持つコンポーネント
 examples/counters/     親が state を持ち、props で渡し、イベントで戻す例。リストと入力欄つき
+examples/todo/         TODO リスト。jsx、自分の state を持つ key つきの行、フィルタ、並べ替え
 test/react-test.el     差分計算のテスト（ネイティブの Emacs で実行。ブラウザ不要）
 test/e2e.mjs           サンプルを headless Chrome で動かすテスト
 doc/design.md          仕組み（英語）
@@ -57,6 +75,10 @@ doc/experiment-notes.md  ここまでの実験で分かったこと
 | `(react-props SELF [KEY])`、`(react-state SELF [KEY])` | インスタンスの props / state（plist）、またはその中の1つの値。 |
 | `(react-set-state SELF :key VALUE ...)` | 指定したキーを差し替えた新しい state を設定し、再描画します。「古い state を受け取って変更分を返す関数」を1つ渡すこともできます。1回のイベント中に何度呼んでも、描画は1回です。 |
 | `(react-mount ELEMENT SELECTOR)` | CSS セレクタで指定したページ上の要素に描画します。 |
+| `(jsx MARKUP)` | バッククォートなしで要素を作ります。HTML タグで始まる `(TAG ...)` と、大文字で始まる名前の `(Component ...)` がマークアップです。prop の値、子、それ以外のものはすべて Lisp として評価されます。その Lisp の中でマークアップを書くときは、もう一度 `jsx` を使います。 |
+| `(react-plist-with PLIST :key VALUE ...)` | 指定したキーを設定した新しい plist を返します。`PLIST` は変更しません。state の中のレコード用です。 |
+
+増減や並べ替えのあるリストの子には `:key` を付けます（`(li (:key id) ...)`）。前回と同じ key の子は同じ子として扱われ、リスト内の位置が変わっても、DOM ノードと、その中のコンポーネントの state を保ちます。動かすノードは最小限です。key のない子は位置で対応づけます。
 
 DOM 要素の props: `:on-click`、`:on-input`、`:on-submit` などはイベントリスナーです（関数は `:type :value :checked :key` を持つ plist を受け取ります）。`:value` と `:checked` は DOM プロパティなので、入力欄は controlled になります。`:style` は文字列か plist です。それ以外は属性になります（`nil` で削除、`t` で空の属性）。
 
@@ -72,4 +94,4 @@ npm run test:e2e     # サンプルを headless Chrome で実行
 
 ## 制限
 
-これは実験の第1段階で、フレームワークではありません。子要素は位置で対応づけます（key による並べ替えは未対応）。非同期処理（エフェクトやデータ取得）はありません。戻ってこないハンドラは中断できません。Emacs は約150MBのダウンロードです。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
+これは実験で、フレームワークではありません。非同期処理（エフェクトやデータ取得）はありません。戻ってこないハンドラは中断できません。Emacs は約150MBのダウンロードです。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
