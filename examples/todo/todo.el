@@ -43,6 +43,14 @@
 (react-define-component 'TodoItem
   ;; Its own state: whether it is being edited, and the text typed so far.
   :initial-state (lambda (_props) (list :editing nil :draft ""))
+  ;; A row is rendered again only when its own todo, its neighbour or its
+  ;; own state changed: typing in the new-todo field or toggling another row
+  ;; leaves it alone.  The function prop :on-action is new at every render of
+  ;; the application and is deliberately not compared; the handlers below
+  ;; read it when the event happens.
+  :should-update (lambda (self previous-props previous-state)
+                   (or (not (eq (react-state self) previous-state))
+                       (react-changed-p (react-props self) previous-props :todo :previous)))
   ;; When editing has just begun, the text field is on the page now.
   :did-update (lambda (self _previous-props previous-state)
                 (when (and (react-state self :editing) (not (plist-get previous-state :editing)))
@@ -52,7 +60,7 @@
   (lambda (self)
     (let* ((todo (react-props self :todo))
            (id (plist-get todo :id))
-           (act (react-props self :on-action)))
+           (act (lambda (&rest action) (apply (react-props self :on-action) action))))
       (if (react-state self :editing)
           (jsx (li (:class "todo editing")
                  (form (:class "edit"

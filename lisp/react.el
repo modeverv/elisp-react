@@ -80,10 +80,20 @@
 ;; Such a function typically ends in `react-set-state'.  Start timers and
 ;; requests in :did-mount, react to a finished render in :did-update, stop
 ;; timers in :will-unmount.
+;;
+;; `react-async' writes the same thing top to bottom: the code stops at each
+;; `react-await' and goes on when the page has answered.
+;;
+;;   (react-async
+;;     (react-set-state self :status 'loading)
+;;     (let ((response (react-await (react-fetch-async "/data.json"))))
+;;       (react-await (react-sleep 300))
+;;       (react-set-state self :status 'loaded :data (react-response-json response))))
 
 ;;; Code:
 
 (require 'cl-lib)
+(require 'generator)
 
 ;;;; Mounted tree
 
@@ -141,12 +151,21 @@
 :did-mount FUNCTION      (SELF), after the component is on the page.
 :did-update FUNCTION     (SELF PREVIOUS-PROPS PREVIOUS-STATE), after each
                          later render.
+:should-update FUNCTION  (SELF PREVIOUS-PROPS PREVIOUS-STATE) -> nil to skip
+                         a render: the component and everything below it
+                         stay as they are.  PREVIOUS-PROPS and
+                         PREVIOUS-STATE are what the last render saw; SELF
+                         has the new ones.  See `react-changed-p'.
+:pure t                  Shorthand: render only when a prop or the state
+                         changed (`react-shallow-equal').
 :will-unmount FUNCTION   (SELF), before it is taken off.
 
 An element (NAME PROPS CHILD...) then renders this component.  Its
 children reach the component as the prop :children."
   (unless (functionp (plist-get spec :render))
     (error "Component %s has no :render function" name))
+  (when (and (plist-get spec :pure) (not (plist-get spec :should-update)))
+    (setq spec (append spec (list :should-update #'react--pure-should-update))))
   (put name 'react-component spec)
   name)
 
@@ -514,15 +533,21 @@ list of mounted children."
 (defun react--rerender (instance)
   "Render INSTANCE again and reconcile what it rendered before."
   (setf (react--instance-dirty instance) nil)
-  (when (plist-get (react--instance-spec instance) :did-update)
-    (push (list instance (react--instance-rendered-props instance) (react--instance-rendered-state instance))
-          react--did-update))
-  (setf (react--instance-rendered-props instance) (react--instance-props instance)
-        (react--instance-rendered-state instance) (react--instance-state instance))
-  (let ((react--owner instance))
-    (setf (react--instance-child instance)
-          (react--update (react--instance-child instance) (react--render instance)
-                         (1+ (react--instance-depth instance))))))
+  (let ((should-update (plist-get (react--instance-spec instance) :should-update)))
+    ;; A skipped render leaves "what the last render saw" as it is: the next
+    ;; question is again about the difference to what is on the page.
+    (when (or (null should-update)
+              (funcall should-update instance (react--instance-rendered-props instance)
+                       (react--instance-rendered-state instance)))
+      (when (plist-get (react--instance-spec instance) :did-update)
+        (push (list instance (react--instance-rendered-props instance) (react--instance-rendered-state instance))
+              react--did-update))
+      (setf (react--instance-rendered-props instance) (react--instance-props instance)
+            (react--instance-rendered-state instance) (react--instance-state instance))
+      (let ((react--owner instance))
+        (setf (react--instance-child instance)
+              (react--update (react--instance-child instance) (react--render instance)
+                             (1+ (react--instance-depth instance))))))))
 
 ;;;; State
 
@@ -557,6 +582,48 @@ Several changes during one event cause one render."
     (setf (react--instance-dirty self) t)
     (push self react--dirty))
   nil)
+
+;;;; Skipping renders
+
+(defun react--same-value-p (a b)
+  "Non-nil if the prop or state values A and B are the same.
+Strings and numbers are compared by value, everything else by identity:
+a record or a list that was not replaced is the same, a new one is not
+\(state is changed by building new values, never in place).  Functions
+are the same only if they are the same object: a `lambda' in a render
+function makes a new one every time."
+  (or (eq a b)
+      (and (stringp a) (stringp b) (string= a b))
+      (and (numberp a) (numberp b) (= a b))))
+
+(defun react-shallow-equal (a b)
+  "Non-nil if the plists A and B have the same keys with the same values.
+Values are compared one level deep: see `react--same-value-p'."
+  (and (= (length a) (length b))
+       (let ((same t) (plist a))
+         (while (and same plist)
+           (setq same (and (plist-member b (car plist))
+                           (react--same-value-p (cadr plist) (plist-get b (car plist)))))
+           (setq plist (cddr plist)))
+         same)))
+
+(defun react-changed-p (new old &rest keys)
+  "Non-nil if the plists NEW and OLD differ in one of KEYS.
+For :should-update, to look only at the props that matter to the render:
+
+  :should-update
+  (lambda (self previous-props previous-state)
+    (or (not (eq (react-state self) previous-state))
+        (react-changed-p (react-props self) previous-props :todo)))
+
+Leaving out a function prop is safe when the handlers that use it read
+it when the event happens, (funcall (react-props self :on-change) ...),
+because a skipped component still gets its new props."
+  (cl-some (lambda (key) (not (react--same-value-p (plist-get new key) (plist-get old key)))) keys))
+
+(defun react--pure-should-update (self previous-props previous-state)
+  (not (and (react-shallow-equal (react--instance-props self) previous-props)
+            (react-shallow-equal (react--instance-state self) previous-state))))
 
 ;;;; The host's entry points
 
@@ -715,6 +782,65 @@ JSON body."
 (defun react-response-json (response)
   "The body of RESPONSE as Lisp data: objects are plists, arrays vectors."
   (json-parse-string (plist-get response :text) :object-type 'plist :null-object nil :false-object nil))
+
+;;;; async / await
+
+;; An "awaitable" is a function of two arguments, RESOLVE and REJECT: it
+;; starts something and calls one of them, once, when that has finished.
+
+(define-error 'react-async-error "Asynchronous operation failed")
+
+(defun react-sleep (milliseconds)
+  "An awaitable that finishes after MILLISECONDS."
+  (lambda (resolve _reject)
+    (react-set-timeout milliseconds (lambda () (funcall resolve nil)))))
+
+(defun react-fetch-async (url &rest options)
+  "An awaitable for `react-fetch': its value is the response.
+OPTIONS are :method, :headers and :body.  Without a response the await
+signals `react-async-error'; an HTTP error status is a response."
+  (lambda (resolve reject)
+    (apply #'react-fetch url :then resolve :catch reject options)))
+
+(defun react--await-value (answer)
+  "What `react-await' evaluates to, given the runner's ANSWER."
+  (if (eq (car-safe answer) 'react--rejected)
+      (signal 'react-async-error (list (cdr answer)))
+    (cdr answer)))
+
+(defmacro react-await (awaitable)
+  "Inside `react-async': wait for AWAITABLE and return its value.
+The Lisp code stops here and Emacs goes back to the page; when the page
+has the answer, the code goes on.  If the operation fails, this signals
+`react-async-error', which `condition-case' around it can handle.
+State may have changed in the meantime: read it again after an await."
+  `(react--await-value (iter-yield ,awaitable)))
+
+(defun react--async-step (iterator answer)
+  "Run ITERATOR until its next await, handing it ANSWER for the last one."
+  (condition-case nil
+      (funcall (iter-next iterator answer)
+               (lambda (value) (react--async-step iterator (cons 'react--resolved value)))
+               (lambda (message) (react--async-step iterator (cons 'react--rejected message))))
+    (iter-end-of-sequence nil)))
+
+(defmacro react-async (&rest body)
+  "Run BODY, in which `react-await' waits for the page.
+
+  (react-async
+    (react-set-state self :status \='loading)
+    (condition-case nil
+        (let ((response (react-await (react-fetch-async \"/data.json\"))))
+          (react-set-state self :status \='loaded
+                           :data (react-response-json response)))
+      (react-async-error (react-set-state self :status \='failed))))
+
+BODY starts at once and runs until its first await; `react-async' then
+returns nil, and the rest happens when the page answers.  Loops and
+conditionals may contain awaits; an `unwind-protect' cleanup form and a
+`lambda' inside BODY may not (it is a generator: see `iter-lambda')."
+  (declare (indent 0))
+  `(react--async-step (funcall (iter-lambda () ,@body)) nil))
 
 ;;;; The page: localStorage
 

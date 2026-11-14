@@ -178,6 +178,23 @@ try {
     [true, true, false, false]);
   pass("todo: a checkbox toggles a todo");
 
+  // should-update: typing into the new-todo field renders the application
+  // again at every key, but no row.
+  const rowRenders = () => js(`window.elispReact.emacs.eval("todo-item-renders")`);
+  await js(`window.elispReact.emacs.eval("(progn (defvar todo-item-renders 0) (advice-add 'react--render :before (lambda (instance) (when (eq (react--instance-type instance) 'TodoItem) (setq todo-item-renders (1+ todo-item-renders))))) todo-item-renders)")`);
+  await typeInto(".new-text", "typing");
+  await typeInto(".new-text", "typing more");
+  await until("document.querySelector('.add').disabled === false", "the application rendered");
+  assert.equal(await rowRenders(), 0);
+  await click(".toggle", 2);
+  await until("document.querySelector('.left').textContent === '1 item left'", "toggling the third row");
+  assert.equal(await rowRenders(), 1);
+  await click(".toggle", 2);
+  await until("document.querySelector('.left').textContent === '2 items left'", "and back");
+  await typeInto(".new-text", "");
+  await until("document.querySelector('.add').disabled === true", "the field is empty again");
+  pass("todo: rows that did not change are not rendered again (should-update)");
+
   // Keys: tag every row, start editing the last one (state of that row
   // alone), then move rows around it.  The row keeps its DOM node and its
   // half-typed text.
@@ -249,6 +266,12 @@ try {
   await until("document.querySelector('.reminder').textContent === 'waiting…' && document.querySelector('.remind').disabled", "waiting");
   await until("document.querySelector('.reminder').textContent === 'Time is up.'", "the timeout fires");
   pass("async: a timeout changes state later");
+
+  await click(".launch");
+  await until("document.querySelector('.countdown').textContent === '3…'", "the countdown starts");
+  await until("document.querySelector('.countdown').textContent === '1…'", "it counts");
+  await until("document.querySelector('.countdown').textContent === 'Lift-off!' && !document.querySelector('.launch').disabled", "lift-off");
+  pass("async: react-async runs a loop with a pause in it (await)");
 
   await click(".load");
   await until("document.querySelector('.status').textContent === 'loaded'", "the quotes load");

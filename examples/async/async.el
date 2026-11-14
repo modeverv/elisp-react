@@ -28,7 +28,7 @@
            " UTC, "
            (span (:class "ticks") (format "%d ticks" (react-state self :ticks)))))))
 
-;;;; A timeout: something that happens later, once
+;;;; A timeout: something that happens later, once (with a callback)
 
 (react-define-component 'Reminder
   :initial-state (lambda (_props) (list :status "idle"))
@@ -46,23 +46,50 @@
                ("done" "Time is up.")
                (_ "")))))))
 
+;;;; The same, written top to bottom: async / await
+
+;; `react-async' runs its body until the first `react-await', gives control
+;; back to the page, and continues when the page answers.  A loop with a
+;; pause in it reads like a loop.
+
+(react-define-component 'Countdown
+  :initial-state (lambda (_props) (list :left nil))
+  :render
+  (lambda (self)
+    (jsx (div (:class "row")
+           (button (:class "launch" :disabled (numberp (react-state self :left))
+                    :on-click (lambda (_event)
+                                (react-async
+                                  (dotimes (i 3)
+                                    (react-set-state self :left (- 3 i))
+                                    (react-await (react-sleep 400)))
+                                  (react-set-state self :left 'liftoff))))
+             "count down")
+           (span (:class "countdown")
+             (pcase (react-state self :left)
+               ('nil "")
+               ('liftoff "Lift-off!")
+               (n (format "%d…" n))))))))
+
 ;;;; A request: loading, then data or an error
 
 (react-define-component 'Quotes
   :initial-state (lambda (_props) (list :status 'idle :quotes [] :error nil))
   :render
   (lambda (self)
-    (let ((fetch-quotes (lambda (url)
-                  (react-set-state self :status 'loading :error nil)
-                  (react-fetch url
-                               :then (lambda (response)
-                                       (if (plist-get response :ok)
-                                           (react-set-state self :status 'loaded
-                                                            :quotes (react-response-json response))
-                                         (react-set-state self :status 'failed
-                                                          :error (format "HTTP %d" (plist-get response :status)))))
-                               :catch (lambda (message)
-                                        (react-set-state self :status 'failed :error message))))))
+    (let ((fetch-quotes
+           (lambda (url)
+             (react-async
+               (react-set-state self :status 'loading :error nil)
+               (condition-case failure
+                   (let ((response (react-await (react-fetch-async url))))
+                     (if (plist-get response :ok)
+                         (react-set-state self :status 'loaded :quotes (react-response-json response))
+                       (react-set-state self :status 'failed
+                                        :error (format "HTTP %d" (plist-get response :status)))))
+                 ;; No response at all (offline, a refused connection).
+                 (react-async-error
+                  (react-set-state self :status 'failed :error (cadr failure))))))))
       (jsx (section (:class "quotes")
              (div (:class "row")
                (button (:class "load" :on-click (lambda (_event) (funcall fetch-quotes "quotes.json"))) "load quotes")
@@ -93,6 +120,7 @@
                " clock"))
            (and (react-state self :clock) (jsx (Clock)))
            (Reminder)
+           (Countdown)
            (Quotes)))))
 
 (react-mount (jsx (App)) "#app")

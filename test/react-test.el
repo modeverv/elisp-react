@@ -535,6 +535,142 @@
         (should (member `("cancel" ,interval) after))
         (should-not (string-match-p "ticks" (react-html "#app")))))))
 
+;;;; Skipping renders
+
+(ert-deftest react-test-should-update ()
+  "A component that says no is not rendered again, nor is anything below it."
+  (react-test--fresh
+    (let ((renders nil) set)
+      (react-define-component 'react-test-cell
+        :pure t
+        :render (lambda (self)
+                  (push (react-props self :name) renders)
+                  `(td () ,(format "%s=%d" (react-props self :name) (react-props self :value)))))
+      (react-define-component 'react-test-row
+        :initial-state (lambda (_props) (list :a 1 :b 1 :label "row"))
+        :render (lambda (self)
+                  (setq set (lambda (&rest changes) (apply #'react-set-state self changes)))
+                  `(tr (:title ,(react-state self :label))
+                     (react-test-cell (:name "a" :value ,(react-state self :a)))
+                     (react-test-cell (:name "b" :value ,(react-state self :b))))))
+      (react-mount '(react-test-row) "#app")
+      (react-flush)
+      (should (equal (reverse renders) '("a" "b")))
+      (setq renders nil)
+      ;; Only b's props change: a is skipped.
+      (funcall set :b 2)
+      (should (equal (react-test--ops) '(("set-text" 5 "b=2"))))
+      (should (equal renders '("b")))
+      ;; Nothing the cells see changes.
+      (setq renders nil)
+      (funcall set :label "renamed" :a 1)
+      (should (equal (react-test--ops) '(("attr" 1 "title" "renamed"))))
+      (should (equal renders nil))
+      ;; Equal strings and numbers are the same value; a new function is not.
+      (should (react-shallow-equal '(:s "x" :n 1.0 :l nil) (list :s (concat "x") :n 1 :l nil)))
+      (should-not (react-shallow-equal (list :f (lambda () 1)) (list :f (lambda () 1))))
+      (should-not (react-shallow-equal '(:a 1) '(:a 1 :b 2)))
+      (should (react-changed-p '(:a 1 :b (x)) '(:a 1 :b (x)) :b))
+      (should-not (react-changed-p '(:a 1 :b 2 :f ignore) '(:a 1 :b 2 :f car) :a :b)))))
+
+(ert-deftest react-test-should-update-keeps-new-props ()
+  "A skipped component still has its new props: handlers that read props late see them."
+  (react-test--fresh
+    (let (set log)
+      (react-define-component 'react-test-button
+        :should-update (lambda (self previous-props _previous-state)
+                         (react-changed-p (react-props self) previous-props :label))
+        :render (lambda (self)
+                  `(button (:on-click ,(lambda (_event) (funcall (react-props self :on-press))))
+                     ,(react-props self :label))))
+      (react-define-component 'react-test-panel
+        :initial-state (lambda (_props) (list :n 0))
+        :render (lambda (self)
+                  (setq set (lambda (n) (react-set-state self :n n)))
+                  (let ((n (react-state self :n)))
+                    `(div () (react-test-button (:label "press" :on-press ,(lambda () (push n log))))))))
+      (react-mount '(react-test-panel) "#app")
+      (let ((button (car (react-test--listener "click" (react-test--ops)))))
+        (funcall set 7)
+        (should (equal (react-test--ops) nil))            ; the button was not rendered again
+        (react-dispatch-event button "click" nil)
+        (should (equal log '(7)))))))                      ; but its handler reached the new function
+
+;;;; async / await
+
+(defun react-test--calls (ops)
+  "The requests to the host among OPS: (REQUEST COMMAND ARGUMENT)."
+  (mapcar #'cdr (react-test--find "call" ops)))
+
+(defun react-test--reply (request ok value)
+  "Answer REQUEST as the host would; the requests that this leads to."
+  (react-test--calls (mapcar (lambda (op) (append op nil)) (react-host-reply request ok value))))
+
+(ert-deftest react-test-async-runs-top-to-bottom ()
+  "The body stops at each await and goes on when the host answers."
+  (react-test--fresh
+    (let (log calls)
+      (react-async
+        (push 'start log)
+        (react-await (react-sleep 100))
+        (push 'after-first log)
+        (dotimes (i 2)
+          (react-await (react-sleep (* 10 (1+ i))))
+          (push (list 'loop i) log))
+        (let ((response (react-await (react-fetch-async "/x.json" :method "POST" :body "{}"))))
+          (push (plist-get response :status) log)))
+      (should (equal log '(start)))
+      (setq calls (react-test--calls (react-test--ops)))
+      (should (equal (cdr (car calls)) '("timeout" 100)))
+      (setq calls (react-test--reply (car (car calls)) t nil))
+      (should (equal log '(after-first start)))
+      (dotimes (i 2)
+        (should (equal (cdr (car calls)) (list "timeout" (* 10 (1+ i)))))
+        (setq calls (react-test--reply (car (car calls)) t nil)))
+      (should (equal (seq-take log 2) '((loop 1) (loop 0))))
+      (should (equal (nth 1 (car calls)) "fetch"))
+      (should (equal (plist-get (nth 2 (car calls)) :method) "POST"))
+      (should (equal (react-test--reply (car (car calls)) t '(:status 201 :ok t :text "")) nil))
+      (should (equal (car log) 201)))))
+
+(ert-deftest react-test-async-errors ()
+  "A failed await signals `react-async-error' at the await."
+  (react-test--fresh
+    (let (log calls)
+      (react-async
+        (condition-case err
+            (progn (react-await (react-fetch-async "/down"))
+                   (push 'not-reached log))
+          (react-async-error (push (cadr err) log)))
+        (react-await (react-sleep 1))
+        (push 'went-on log))
+      (setq calls (react-test--reply (car (car (react-test--calls (react-test--ops)))) nil "Failed to fetch"))
+      (should (equal log '("Failed to fetch")))
+      (react-test--reply (car (car calls)) t nil)
+      (should (equal log '(went-on "Failed to fetch")))
+      ;; Without a handler the error is the host's to report.
+      (react-async (react-await (react-fetch-async "/down")))
+      (should-error (react-host-reply (car (car (react-test--calls (react-test--ops)))) nil "gone")
+                    :type 'react-async-error))))
+
+(ert-deftest react-test-async-in-a-component ()
+  "State set after an await renders like any other."
+  (react-test--fresh
+    (react-define-component 'react-test-loader
+      :initial-state (lambda (_props) (list :status "idle"))
+      :did-mount (lambda (self)
+                   (react-async
+                     (react-set-state self :status "loading")
+                     (let ((response (react-await (react-fetch-async "/n.json"))))
+                       (react-set-state self :status (format "got %s" (plist-get (react-response-json response) :n))))))
+      :render (lambda (self) `(p () ,(react-state self :status))))
+    (react-mount '(react-test-loader) "#app")
+    (let ((ops (react-test--ops)))
+      (should (equal (react-html "#app") "<p>loading</p>"))
+      (should (equal (mapcar (lambda (op) (append op nil))
+                             (react-host-reply (car (car (react-test--calls ops))) t '(:status 200 :ok t :text "{\"n\":5}")))
+                     '(("set-text" 2 "got 5")))))))
+
 ;;;; The examples load and render
 
 (defun react-test--load-example (name)

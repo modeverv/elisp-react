@@ -115,6 +115,22 @@ So asynchronous code in a component is a callback that changes state, and time p
 
 A `:ref` names an element for the component that rendered it. `react-invoke` emits its operation into the same list as the DOM changes, after them, which is why `:did-update` (run after the render, before the flush returns) is the place to ask for the focus of a field that the render has just created.
 
+### async / await
+
+`react-async` is a macro over `iter-lambda` from Emacs's `generator.el`, which rewrites a body into a state machine that can stop at `iter-yield` and be resumed. `(react-await X)` yields the awaitable `X`, a function of `(RESOLVE REJECT)`. The runner, `react--async-step`, calls the awaitable with two functions that resume the generator with `(react--resolved . VALUE)` or `(react--rejected . MESSAGE)`; `react-await` turns the latter into the signal `react-async-error` inside the body, so an ordinary `condition-case` around an await handles a failure.
+
+Nothing else is new: `react-sleep` and `react-fetch-async` are awaitables over the same host calls, the generator is resumed inside `react-host-reply`, and the state it sets is rendered by the flush that ends that request. Because the page's Lisp is byte-compiled when it is loaded, the rewriting into a state machine happens once, not at every call.
+
+Limits inherited from `generator.el`: an await cannot be inside a `lambda` in the body or in the cleanup forms of `unwind-protect`. There is no cancellation, and an `async` body has no value to wait for (no composition of async functions).
+
+## Skipping renders
+
+A parent's render updates each child component: new props, render, reconcile. With `:should-update` the component is asked first, with the props and state its last render saw; on nil nothing below it is touched. The new props are stored either way.
+
+`:pure t` installs the usual answer: render if any prop or the state differs. Strings and numbers are compared by value, everything else by `eq`. That is cheap and it is right for state that is replaced rather than modified: an unchanged record is the same object. It is defeated by function props, since a `lambda` in a render function is a new closure every time. The pattern used in `examples/todo`: compare the data props with `react-changed-p`, and let handlers fetch function props when the event happens.
+
+Measured in the page's Emacs with 1000 keyed rows: a render that changes one row takes 134 ms, 29 ms with `:pure` rows (the rest is the parent building 1000 elements and matching the keys).
+
 ## Order and time
 
 The eval service answers one request at a time, in order, and the host applies each answer before the next one arrives. A burst of clicks therefore renders correctly without any locking. Everything in Lisp is synchronous: a handler runs to its end, then the render, then the answer. Answers to requests (a timer, a response) queue up with the events.
