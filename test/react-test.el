@@ -456,6 +456,10 @@
         (should (equal (react-test--find "attr" ops) '(("attr" 4 "class" "f"))))   ; :ref is not an attribute
         (should (equal log '(("a" nil t)))))
       (should (react-ref instance "field"))
+      ;; A request can send the file chosen in a referenced file input.
+      (let ((request (react-fetch "/upload" :method "POST" :file (react-ref instance "field"))))
+        (should (equal (react-test--ops)
+                       `(("call" ,request "fetch" (:url "/upload" :method "POST" :headers nil :body nil :file 4))))))
       (react-set-state instance :editing nil)
       (react-flush)
       (should (equal (react-ref instance "field") nil))

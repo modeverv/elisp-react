@@ -25,7 +25,8 @@
 ;; PROPS is a plist with keyword keys.  For a DOM element:
 ;;
 ;;   :on-click FUNCTION    an event listener; FUNCTION gets the event, a
-;;                         plist (:type "click" :value ... :checked ... :key ...)
+;;                         plist (:type "click" :value ... :checked ... :key ...
+;;                         :files [(:name ... :size ... :type ...)] for a file input)
 ;;   :value :checked       DOM properties (controlled inputs)
 ;;   :style                a string, or a plist (:color "red" :margin-top "4px")
 ;;   :key                  not rendered; identifies a child among its
@@ -788,6 +789,9 @@ Returns the timer; stop it with `react-clear-timer' (in :will-unmount)."
 :method STRING   \"GET\" by default
 :headers PLIST   (:content-type \"application/json\")
 :body STRING
+:file REF        instead of :body: send the file the visitor chose in a
+                 file input, (react-ref SELF NAME); its content is the
+                 body, whatever its size
 :then FUNCTION   (RESPONSE), a plist (:status 200 :ok t :text \"...\");
                  an HTTP error status is a response too, with :ok nil
 :catch FUNCTION  (MESSAGE), when there was no response at all
@@ -795,11 +799,13 @@ Returns the timer; stop it with `react-clear-timer' (in :will-unmount)."
 Returns the request, for `react-cancel'.  `react-response-json' reads a
 JSON body."
   (let ((then (plist-get options :then))
-        (catch (plist-get options :catch)))
+        (catch (plist-get options :catch))
+        (file (plist-get options :file)))
     (react-host-call
      "fetch"
-     (list :url url :method (or (plist-get options :method) "GET")
-           :headers (plist-get options :headers) :body (plist-get options :body))
+     (append (list :url url :method (or (plist-get options :method) "GET")
+                   :headers (plist-get options :headers) :body (plist-get options :body))
+             (and file (list :file (react--host-dom-id file))))
      (lambda (ok value)
        (cond ((and ok then) (funcall then value))
              (ok nil)
@@ -824,7 +830,7 @@ JSON body."
 
 (defun react-fetch-async (url &rest options)
   "An awaitable for `react-fetch': its value is the response.
-OPTIONS are :method, :headers and :body.  Without a response the await
+OPTIONS are :method, :headers, :body and :file.  Without a response the await
 signals `react-async-error'; an HTTP error status is a response."
   (lambda (resolve reject)
     (apply #'react-fetch url :then resolve :catch reject options)))

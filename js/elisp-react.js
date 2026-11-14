@@ -78,6 +78,9 @@ function createDom(dispatch, host) {
       value: typeof target?.value === "string" ? target.value : null,
       checked: typeof target?.checked === "boolean" ? target.checked : null,
       key: typeof event.key === "string" ? event.key : null,
+      // A file input: what the visitor chose.  The files themselves stay in
+      // the page; `react-fetch' can send one (:file).
+      files: target?.files ? [...target.files].map((file) => ({ name: file.name, size: file.size, type: file.type })) : null,
     };
   };
 
@@ -133,7 +136,7 @@ function createDom(dispatch, host) {
       if (!INVOCABLE.has(method)) throw new Error(`elisp-react: ${method} cannot be invoked from Lisp`);
       node(id)[method]();
     },
-    call(request, command, argument) { host.call(request, command, argument); },
+    call(request, command, argument) { host.call(request, command, argument, (id) => nodes.get(id)); },
     tell(command, argument) { host.tell(command, argument); },
     cancel(request) { host.cancel(request); },
   };
@@ -181,8 +184,16 @@ function createHost(reply, fetchFunction) {
       const timer = setInterval(() => reply(request, true, null), milliseconds);
       return () => clearInterval(timer);
     },
-    fetch(request, { url, method, headers, body }) {
+    fetch(request, { url, method, headers, body, file }, nodeOf) {
       const controller = new AbortController();
+      // :file names a file input; its first file is the body, as it is.
+      if (file !== undefined && file !== null) {
+        body = nodeOf(file)?.files?.[0];
+        if (!body) {
+          Promise.resolve().then(() => { if (pending.delete(request)) reply(request, false, "No file is chosen"); });
+          return () => {};
+        }
+      }
       // Lisp's header names are keywords: content-type, accept, ...
       fetchFunction(url, { method: method || "GET", headers: headers || {}, body: body ?? undefined, signal: controller.signal })
         .then(async (response) => ({ status: response.status, ok: response.ok, text: await response.text() }))
@@ -196,9 +207,9 @@ function createHost(reply, fetchFunction) {
     "storage-remove"({ key }) { localStorage.removeItem(storagePrefix() + key); },
   };
   return {
-    call(request, command, argument) {
+    call(request, command, argument, nodeOf) {
       if (!commands[command]) throw new Error(`elisp-react: unknown host command ${command}`);
-      pending.set(request, commands[command](request, argument));
+      pending.set(request, commands[command](request, argument, nodeOf));
     },
     tell(command, argument) {
       if (!notices[command]) throw new Error(`elisp-react: unknown host command ${command}`);
