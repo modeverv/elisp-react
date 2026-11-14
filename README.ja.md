@@ -4,7 +4,7 @@ Emacs Lisp で書いた React です。
 
 これは実験です。2013年ごろの React（props と state を持つコンポーネント、仮想 DOM を返す render 関数、差分計算）を Emacs Lisp で書いて、本物の Web ページを動かせるかを確かめます。GNU Emacs 30.2 がページの中で WebAssembly として動きます（[wasmacs](https://github.com/modeverv/wasmacs)）。コンポーネント、state、差分計算はすべて Emacs Lisp で、JavaScript は Lisp が計算した DOM 操作を適用するだけです。
 
-公開ページ: <https://modeverv.github.io/elisp-react/> （サンプルを最初に開くとき、Emacs 本体を約150MBダウンロードします）
+公開ページ: <https://modeverv.github.io/elisp-react/> （サンプルを最初に開くとき、Emacs 本体を約150MBダウンロードします。以後はブラウザに保存され、2回目からは約0.2秒で描画されます）
 
 [English](README.md)
 
@@ -32,7 +32,7 @@ Emacs Lisp で書いた React です。
 (react-mount '(counter (:start 3)) "#app")
 ```
 
-ビルドは不要です。ページ内の `<script type="text/emacs-lisp">`（`src` 指定でもインラインでも可）を、Emacs が文書の順に評価します。
+ビルドは不要です。ページ内の `<script type="text/emacs-lisp">`（`src` 指定でもインラインでも可）を、Emacs が文書の順にバイトコンパイルして実行します。コンパイル結果は、ソースが変わるまでブラウザに保存されます。
 
 上の要素は、バッククォートで作ったただのデータです。`jsx` マクロを使うと、同じものをカンマなしで書けます。HTML タグか大文字で始まるコンポーネント名で始まるリストがマークアップで、それ以外はすべて Lisp として評価されます。
 
@@ -54,8 +54,8 @@ Emacs Lisp で書いた React です。
 ## 構成
 
 ```text
-lisp/react.el          React 本体: 要素、jsx、コンポーネント、state、key つきの差分計算、タイマー、fetch、保存（Emacs Lisp 760行）
-js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送、依頼への応答（290行）
+lisp/react.el          React 本体: 要素、jsx、コンポーネント、state、key つきの差分計算、タイマー、fetch、保存（Emacs Lisp 790行）
+js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送、依頼への応答、Lisp のコンパイルとキャッシュ（350行）
 examples/counter/      state を持つコンポーネント
 examples/counters/     親が state を持ち、props で渡し、イベントで戻す例。リストと入力欄つき
 examples/todo/         TODO リスト。jsx、自分の state を持つ key つきの行、フィルタ、並べ替え、localStorage への保存
@@ -104,4 +104,4 @@ npm run test:e2e     # サンプルを headless Chrome で実行
 
 ## 制限
 
-これは実験で、フレームワークではありません。非同期処理はコールバックで書きます（Promise や `async` はありません）。戻ってこないハンドラは中断できません。親が再描画されると子も必ず再描画されます。Emacs は初回に約150MBをダウンロードします。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
+これは実験で、フレームワークではありません。非同期処理はコールバックで書きます（Promise や `async` はありません）。戻ってこないハンドラは中断できません。親が再描画されると子も必ず再描画されます。Emacs は初回に約150MBをダウンロードします。key つきの1000行の再描画には約130ミリ秒かかります。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。

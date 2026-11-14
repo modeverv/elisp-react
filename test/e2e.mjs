@@ -109,6 +109,11 @@ try {
   })()`);
   pass(`counter: 200 clicks rendered in ${burst.toFixed(0)} ms (${(burst / 200).toFixed(2)} ms per click)`);
 
+  // The Lisp was byte-compiled in the page, and the compiled code is kept.
+  assert.equal(await js("Object.keys(localStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 2);
+  assert.equal(await js("window.elispReact.emacs.eval(\"(byte-code-function-p (symbol-function 'react-flush))\")"), true);
+  pass("counter: react.el and counter.el run byte-compiled; the compiled code is stored for the next visit");
+
   // ---- counters ---------------------------------------------------------------
   await open("/examples/counters/");
   assert.deepEqual(await text(".name"), ["Apples: 3", "Oranges: 0"]);

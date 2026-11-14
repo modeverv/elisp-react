@@ -4,7 +4,7 @@ React, written in Emacs Lisp.
 
 This is an experiment: can the React of 2013 (components with props and state, render functions that return a virtual DOM, a reconciler) be written in Emacs Lisp and drive a real web page? GNU Emacs 30.2 runs in the page as WebAssembly ([wasmacs](https://github.com/modeverv/wasmacs)); components, state and the reconciler are Emacs Lisp; JavaScript only applies the DOM operations Lisp computes.
 
-Live: <https://modeverv.github.io/elisp-react/> (the first visit of an example downloads Emacs, about 150 MB).
+Live: <https://modeverv.github.io/elisp-react/>. The first visit of an example downloads Emacs, about 150 MB; it is then kept in the browser, and later visits render in about 0.2 s.
 
 [日本語](README.ja.md)
 
@@ -32,7 +32,7 @@ Live: <https://modeverv.github.io/elisp-react/> (the first visit of an example d
 (react-mount '(counter (:start 3)) "#app")
 ```
 
-There is no build step. The page's `<script type="text/emacs-lisp">` elements (with `src`, or inline) are evaluated by Emacs in document order.
+There is no build step. The page's `<script type="text/emacs-lisp">` elements (with `src`, or inline) are byte-compiled and run by Emacs in document order; the compiled code is kept in the browser until the source changes.
 
 The element above is plain data built with backquote. The `jsx` macro writes the same thing without commas: lists that start with an HTML tag or a Capitalized component name are markup, everything else is Lisp.
 
@@ -54,8 +54,8 @@ The element above is plain data built with backquote. The `jsx` macro writes the
 ## What is where
 
 ```text
-lisp/react.el          React: elements, jsx, components, state, keyed reconciler, timers, fetch, storage (760 lines of Emacs Lisp)
-js/elisp-react.js      the host: starts Emacs, applies DOM operations, forwards events, answers requests (290 lines)
+lisp/react.el          React: elements, jsx, components, state, keyed reconciler, timers, fetch, storage (790 lines of Emacs Lisp)
+js/elisp-react.js      the host: starts Emacs, applies DOM operations, forwards events, answers requests, compiles and caches the Lisp (350 lines)
 examples/counter/      a component with state
 examples/counters/     state in a parent, props down, events up, a list, a controlled input
 examples/todo/         a TODO list: jsx, keyed rows with state of their own, filters, reordering, localStorage
@@ -104,4 +104,4 @@ With a wasmacs checkout next to this one (`../wasmacs/docs`), the server and the
 
 ## Limits
 
-This is an experiment, not a framework. Asynchronous code is callbacks (no promises or `async`), a handler that never returns cannot be interrupted, a parent's render always renders its children, and Emacs is a 150 MB download on the first visit. See [doc/experiment-notes.md](doc/experiment-notes.md).
+This is an experiment, not a framework. Asynchronous code is callbacks (no promises or `async`), a handler that never returns cannot be interrupted, a parent's render always renders its children, and Emacs is a 150 MB download on the first visit. A render of 1000 keyed rows takes about 130 ms. See [doc/experiment-notes.md](doc/experiment-notes.md).

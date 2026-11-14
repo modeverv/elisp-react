@@ -19,6 +19,14 @@ The rule of the experiment: everything that is React is Emacs Lisp. JavaScript d
 
 Emacs comes from the wasmacs eval service (`doc/eval-service.md` in wasmacs): a page sends Lisp, Emacs evaluates it and answers with JSON. One round trip takes about 0.1 ms.
 
+## Loading Lisp
+
+Source that is merely evaluated runs in Emacs's interpreter, which expands every macro at every call: each render would expand `jsx` again and run the reconciler's `pcase` and structure accessors uncompiled. Measured in the page's Emacs, a render of 1000 rows took 4.7 s that way and 0.13 s byte-compiled.
+
+So `js/elisp-react.js` loads every file compiled: it writes the source into Emacs's in-memory filesystem, calls `byte-compile-file` and loads the result. Compiling `react.el` takes about 0.3 s, so the compiled code is kept in `localStorage` under a hash of the source and of Emacs's version, and later visits load it directly. A file that does not compile is evaluated instead, so that the error the page shows is the program's own.
+
+Emacs itself is cached by the wasmacs eval service (Cache Storage, keyed by a build id): the 150 MB are downloaded on the first visit only.
+
 ## Elements
 
 An element is a list `(TAG PROPS CHILD...)`. `TAG` is a symbol: the name of a component if one is defined with that name (`react-define-component` puts the definition on the symbol's property list), otherwise an HTML tag. `PROPS` is a plist and may be left out; it is recognised by starting with a keyword. Strings and numbers are text.

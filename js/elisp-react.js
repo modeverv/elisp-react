@@ -213,6 +213,64 @@ function createHost(reply) {
   };
 }
 
+// ---- loading Emacs Lisp ---------------------------------------------------------
+// Source that is only evaluated runs in Emacs's interpreter, which expands
+// every macro (jsx) at every call: a render is about 35 times slower than
+// with byte-compiled code.  So each file is byte-compiled inside Emacs, and
+// the compiled code is kept in localStorage under a hash of the source: the
+// next visit loads it without compiling.
+
+const lispString = (text) => `"${String(text).replace(/[\\"]/g, "\\$&")}"`;
+
+async function sourceHash(text) {
+  if (!globalThis.crypto?.subtle) return null;    // not a secure context: compile every time
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+// Evaluate the Emacs Lisp TEXT, compiled.  NAME identifies it (a URL, or
+// "inline script 1"); VERSION is Emacs's, whose byte code it is.
+async function loadLisp(emacs, version, name, text) {
+  const file = `/tmp/elisp-react/${name.replace(/[^A-Za-z0-9_.-]+/g, "_")}.el`;
+  // Compiled code needs the file to say that it uses lexical binding.
+  const source = /^.*lexical-binding:/.test(text) ? text : `;;; -*- lexical-binding: t; -*-\n${text}`;
+  const hash = await sourceHash(`${version}\n${source}`);
+  const storageKey = `elisp-react:compiled:${name}`;
+  let stored = null;
+  try { stored = hash && JSON.parse(localStorage.getItem(storageKey) || "null"); } catch (_) { /* compile */ }
+  try {
+    if (stored?.hash === hash) {
+      await emacs.eval(`(let ((coding-system-for-write 'no-conversion))
+        (make-directory (file-name-directory ${lispString(file)}) t)
+        (with-temp-file ${lispString(`${file}c`)}
+          (set-buffer-multibyte nil)
+          (insert (base64-decode-string ${lispString(stored.code)})))
+        (load ${lispString(`${file}c`)} nil t)
+        nil)`);
+      return;
+    }
+    const code = await emacs.eval(`(let ((coding-system-for-write 'utf-8-unix))
+      (make-directory (file-name-directory ${lispString(file)}) t)
+      (with-temp-file ${lispString(file)} (insert ${lispString(source)}))
+      (and (let ((inhibit-message t)) (byte-compile-file ${lispString(file)}))
+           (progn (load ${lispString(`${file}c`)} nil t)
+                  (with-temp-buffer
+                    (set-buffer-multibyte nil)
+                    (insert-file-contents-literally ${lispString(`${file}c`)})
+                    (base64-encode-string (buffer-string) t)))))`);
+    if (code) {
+      try { if (hash) localStorage.setItem(storageKey, JSON.stringify({ hash, code })); } catch (_) { /* full: compile next time */ }
+      return;
+    }
+    // It does not compile: evaluate it, so that the error is the program's.
+    console.warn(`[elisp-react] ${name} could not be byte-compiled; evaluating it instead`);
+    await emacs.eval(`${text}\nnil`);
+  } catch (error) {
+    error.message = `${name}: ${error.message}`;
+    throw error;
+  }
+}
+
 // ---- start --------------------------------------------------------------------
 
 function reportError(error) {
@@ -255,26 +313,17 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   dom = createDom(dispatch, host);
 
   if (!sources) {
-    sources = await Promise.all([...document.querySelectorAll('script[type="text/emacs-lisp"]')].map(async (script) => (
-      script.src ? { name: script.getAttribute("src"), text: await fetchText(script.src) }
-        : { name: "inline script", text: script.textContent }
+    sources = await Promise.all([...document.querySelectorAll('script[type="text/emacs-lisp"]')].map(async (script, index) => (
+      script.src ? { name: script.src, text: await fetchText(script.src) }
+        : { name: `${location.pathname} inline script ${index + 1}`, text: script.textContent }
     )));
   }
   const [info, libraryText] = await Promise.all([emacs.ready, fetchText(library)]);
-  // The value of a file is of no interest (and need not have a JSON form).
-  const load = async (name, text) => {
-    try {
-      await emacs.eval(`${text}\nnil`);
-    } catch (error) {
-      error.message = `${name}: ${error.message}`;
-      throw error;
-    }
-  };
-  await load("react.el", libraryText);
+  await loadLisp(emacs, info.version, new URL(library, location.href).href, libraryText);
   await emacs.call("react--storage-load", storedEntries());
-  for (const source of sources) await load(source.name, source.text);
+  for (const source of sources) await loadLisp(emacs, info.version, source.name, source.text);
   dom.apply(await emacs.call("react-flush"));
-  return { emacs, dom, version: info.version, bootMs: info.bootMs };
+  return { emacs, dom, version: info.version, bootMs: info.bootMs, cached: info.cached };
 }
 
 // A page that contains Emacs Lisp starts by itself.
