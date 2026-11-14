@@ -24,3 +24,8 @@ footer.status { display: flex; align-items: center; gap: 8px; margin: 14px 0; co
 footer.status .left { flex: 1; }
 button.filter { background: #33363d; }
 button.filter.selected { background: #5b3d8f; }
+.clock { font-size: 18px; font-variant-numeric: tabular-nums; }
+.error { color: #ef9a9a; }
+.status { color: #8a8f98; }
+ul.quote-list { padding-left: 20px; }
+ul.quote-list cite { color: #8a8f98; }

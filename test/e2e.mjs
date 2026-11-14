@@ -156,6 +156,7 @@ try {
   assert.deepEqual(await todoTexts(), ["Write React in Emacs Lisp", "Give the rows keys", "Try it in a browser"]);
   assert.deepEqual(await text(".left"), ["2 items left"]);
   assert.deepEqual(await js("[...document.querySelectorAll('.toggle')].map((node) => node.checked)"), [true, false, false]);
+  await until("document.activeElement?.classList.contains('new-text')", "the new-todo field has the focus");
 
   await typeInto(".new-text", "Sort the list");
   await until("document.querySelector('.add').disabled === false", "typing enables add");
@@ -178,6 +179,9 @@ try {
   await js("document.querySelectorAll('li.todo').forEach((node) => { node.dataset.row = node.querySelector('.text').textContent; }); true");
   await click(".edit-button", 3);
   await until("Boolean(document.querySelector('.edit-text'))", "a row switches to editing");
+  // Lisp asked for the focus after its render put the field on the page.
+  await until("document.activeElement === document.querySelector('.edit-text')", "the edit field gets the focus");
+  assert.equal(await js("document.activeElement.selectionEnd - document.activeElement.selectionStart"), "Sort the list".length);
   await typeInto(".edit-text", "Sort the list (half typed");
   await click(".up", 2);       // "Try it in a browser" moves above "Give the rows keys"
   await until("document.querySelectorAll('li.todo .text')[1]?.textContent === 'Try it in a browser'", "a row moves up");
@@ -210,6 +214,48 @@ try {
   await until("document.querySelectorAll('li.todo').length === 2 && !document.querySelector('.clear')", "clearing done todos");
   assert.deepEqual(await text(".left"), ["2 items left"]);
   pass("todo: filters and clearing done todos");
+
+  // The list is in localStorage: a reload starts from it.
+  await open("/examples/todo/");
+  assert.deepEqual(await todoTexts(), ["Try it in a browser", "Sort the list by hand"]);
+  await typeInto(".new-text", "Survive a reload");
+  await js("document.querySelector('form.new').requestSubmit(); true");
+  await until("document.querySelectorAll('li.todo').length === 3", "a todo is added after the reload");
+  await open("/examples/todo/");
+  assert.deepEqual(await todoTexts(), ["Try it in a browser", "Sort the list by hand", "Survive a reload"]);
+  pass("todo: the list survives reloads (localStorage), and new ids continue after the stored ones");
+
+  // ---- async ----------------------------------------------------------------
+  await open("/examples/async/");
+  assert.deepEqual(await text(".ticks"), ["0 ticks"]);
+  await until("Number(document.querySelector('.ticks')?.textContent.split(' ')[0]) >= 2", "the clock ticks");
+  assert.match((await text(".time"))[0], /^\d\d:\d\d:\d\d$/);
+  await click(".show-clock");
+  await until("!document.querySelector('.clock')", "the clock is taken down");
+  const requestsBefore = pageErrors.length;
+  await pause(1500);            // its interval is cancelled: nothing arrives for a clock that is gone
+  assert.equal(pageErrors.length, requestsBefore);
+  await click(".show-clock");
+  await until("document.querySelector('.ticks')?.textContent === '0 ticks'", "a new clock starts from zero");
+  await until("document.querySelector('.ticks')?.textContent === '1 ticks'", "and ticks");
+  pass("async: an interval runs while its component is mounted");
+
+  await click(".remind");
+  await until("document.querySelector('.reminder').textContent === 'waiting…' && document.querySelector('.remind').disabled", "waiting");
+  await until("document.querySelector('.reminder').textContent === 'Time is up.'", "the timeout fires");
+  pass("async: a timeout changes state later");
+
+  await click(".load");
+  await until("document.querySelector('.status').textContent === 'loaded'", "the quotes load");
+  assert.equal(await js("document.querySelectorAll('.quote-list li').length"), 3);
+  assert.equal((await text(".quote-list cite"))[0], "Alan Perlis");
+  await click(".load-missing");
+  await until("document.querySelector('.status').textContent === 'failed'", "a missing file fails");
+  assert.deepEqual(await text(".error"), ["HTTP 404"]);
+  assert.equal(await js("document.querySelector('.quote-list')"), null);
+  await click(".load");
+  await until("document.querySelectorAll('.quote-list li').length === 3", "loading again works");
+  pass("async: fetch with loading, data and error states");
 
   assert.deepEqual(pageErrors, []);
   assert.equal(await js("document.querySelector('#elisp-react-error')"), null);

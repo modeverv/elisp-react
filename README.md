@@ -54,11 +54,12 @@ The element above is plain data built with backquote. The `jsx` macro writes the
 ## What is where
 
 ```text
-lisp/react.el          React: elements, jsx, components, state, keyed reconciler (600 lines of Emacs Lisp)
-js/elisp-react.js      the host: starts Emacs, applies DOM operations, forwards events (210 lines)
+lisp/react.el          React: elements, jsx, components, state, keyed reconciler, timers, fetch, storage (760 lines of Emacs Lisp)
+js/elisp-react.js      the host: starts Emacs, applies DOM operations, forwards events, answers requests (290 lines)
 examples/counter/      a component with state
 examples/counters/     state in a parent, props down, events up, a list, a controlled input
-examples/todo/         a TODO list: jsx, keyed rows with state of their own, filters, reordering
+examples/todo/         a TODO list: jsx, keyed rows with state of their own, filters, reordering, localStorage
+examples/async/        an interval, a timeout, fetch with loading and error states
 test/react-test.el     tests of the reconciler with a native Emacs, no browser
 test/e2e.mjs           the examples in headless Chrome
 doc/design.md          how it works
@@ -71,12 +72,21 @@ An element is plain Lisp data: `"text"`, `(TAG PROPS CHILD...)` or `(TAG CHILD..
 
 | | |
 |---|---|
-| `(react-define-component NAME :render F :initial-state F :did-mount F :will-unmount F)` | Define a component. `:render` gets the instance and returns one element. An element `(NAME PROPS CHILD...)` renders it; its children arrive as the prop `:children`. |
+| `(react-define-component NAME :render F :initial-state F :did-mount F :did-update F :will-unmount F)` | Define a component. `:render` gets the instance and returns one element. An element `(NAME PROPS CHILD...)` renders it; its children arrive as the prop `:children`. `:did-update` gets the instance, the previous props and the previous state. |
 | `(react-props SELF [KEY])`, `(react-state SELF [KEY])` | The props or the state (plists) of an instance, or one value. |
 | `(react-set-state SELF :key VALUE ...)` | Install a new state plist with these keys changed and render again. Also takes one function from the old state to the changes. Several calls during one event cause one render. |
 | `(react-mount ELEMENT SELECTOR)` | Render into the page element the CSS selector names. |
 | `(jsx MARKUP)` | Build an element without backquote. `(TAG ...)` with an HTML tag, or `(Component ...)` with a Capitalized name, is markup; prop values, children and everything else are evaluated as Lisp. Markup inside such Lisp needs `jsx` again. |
 | `(react-plist-with PLIST :key VALUE ...)` | A new plist with these keys set; `PLIST` is not modified. For records in the state. |
+
+Lisp runs only while it answers the page: it cannot wait and cannot reach into the page. A component asks the page instead, and the page calls the Lisp function when there is an answer. Such a function usually ends in `react-set-state`.
+
+| | |
+|---|---|
+| `(react-set-timeout MS F)`, `(react-set-interval MS F)`, `(react-clear-timer TIMER)` | Call `F` later, once or repeatedly. Start an interval in `:did-mount`, clear it in `:will-unmount`. |
+| `(react-fetch URL :method :headers :body :then F :catch F)`, `(react-response-json RESPONSE)`, `(react-cancel REQUEST)` | The browser's `fetch`. `:then` gets a plist `(:status 200 :ok t :text "...")`, also for HTTP error statuses; `:catch` gets a message when there was no response. |
+| `(react-storage-get KEY [DEFAULT])`, `(react-storage-set KEY VALUE)`, `(react-storage-remove KEY)` | The page's `localStorage`, holding any printable Lisp data. Reading is immediate. |
+| `:ref "name"` on an element, `(react-focus SELF "name")`, `(react-invoke SELF "name" METHOD)` | Call `focus`, `blur`, `select`, `click` or `scrollIntoView` on the DOM node of an element the component rendered, after the render's DOM changes (use it in `:did-update` or `:did-mount`). |
 
 Children of a list that changes get a `:key`: `(li (:key id) ...)`. A child with the same key as before is the same child: it keeps its DOM node, and the components in it keep their state, wherever it now stands in the list. The reconciler moves as few nodes as possible. Children without a key are matched by position.
 
@@ -94,4 +104,4 @@ With a wasmacs checkout next to this one (`../wasmacs/docs`), the server and the
 
 ## Limits
 
-This is an experiment, not a framework. There is no asynchronous code (no effects, no data fetching), a handler that never returns cannot be interrupted, and Emacs is a 150 MB download. See [doc/experiment-notes.md](doc/experiment-notes.md).
+This is an experiment, not a framework. Asynchronous code is callbacks (no promises or `async`), a handler that never returns cannot be interrupted, a parent's render always renders its children, and Emacs is a 150 MB download on the first visit. See [doc/experiment-notes.md](doc/experiment-notes.md).

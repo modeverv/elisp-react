@@ -426,6 +426,115 @@
     (should (equal (react-plist-with todo :done t :text "b") '(:id 1 :text "b" :done t)))
     (should (equal todo '(:id 1 :text "a" :done nil)))))
 
+;;;; Refs, did-update, and the page's answers
+
+(ert-deftest react-test-refs-and-did-update ()
+  "A component finds its DOM nodes by :ref and reacts to a finished render."
+  (react-test--fresh
+    (let (instance log)
+      (react-define-component 'react-test-editor
+        :initial-state (lambda (_props) (list :editing nil))
+        :did-update (lambda (self previous-props previous-state)
+                      (push (list (plist-get previous-props :name) (plist-get previous-state :editing)
+                                  (react-state self :editing))
+                            log)
+                      (when (and (react-state self :editing) (not (plist-get previous-state :editing)))
+                        (react-focus self "field")))
+        :render (lambda (self)
+                  (setq instance self)
+                  (if (react-state self :editing)
+                      '(form () (input (:ref "field" :class "f")))
+                    '(form () (span () "view")))))
+      (react-mount '(react-test-editor (:name "a")) "#app")
+      (react-flush)
+      (should (equal log nil))
+      (should (equal (react-ref instance "field") nil))
+      (react-set-state instance :editing t)
+      (let ((ops (react-test--ops)))
+        ;; The focus comes after the node exists and is in place.
+        (should (equal (car (last ops)) '("invoke" 4 "focus")))
+        (should (equal (react-test--find "attr" ops) '(("attr" 4 "class" "f"))))   ; :ref is not an attribute
+        (should (equal log '(("a" nil t)))))
+      (should (react-ref instance "field"))
+      (react-set-state instance :editing nil)
+      (react-flush)
+      (should (equal (react-ref instance "field") nil))
+      (should (equal (car log) '("a" t nil))))))
+
+(ert-deftest react-test-timers ()
+  "Timers are requests to the host; its answers run the Lisp functions."
+  (react-test--fresh
+    (let ((fired 0) timeout interval)
+      (setq timeout (react-set-timeout 500 (lambda () (cl-incf fired))))
+      (setq interval (react-set-interval 100 (lambda () (cl-incf fired 10))))
+      (should (equal (react-test--ops) `(("call" ,timeout "timeout" 500) ("call" ,interval "interval" 100))))
+      (react-host-reply timeout t nil)
+      (react-host-reply timeout t nil)          ; a timeout answers once
+      (react-host-reply interval t nil)
+      (react-host-reply interval t nil)
+      (should (= fired 21))
+      (react-clear-timer interval)
+      (should (equal (react-test--ops) `(("cancel" ,interval))))
+      (react-host-reply interval t nil)         ; too late
+      (should (= fired 21)))))
+
+(ert-deftest react-test-fetch ()
+  "A response, an HTTP error and a failure reach the right function."
+  (react-test--fresh
+    (let (log)
+      (let ((request (react-fetch "/data.json" :headers '(:accept "application/json")
+                                  :then (lambda (response) (push (react-response-json response) log)))))
+        (should (equal (react-test--ops)
+                       `(("call" ,request "fetch" (:url "/data.json" :method "GET"
+                                                   :headers (:accept "application/json") :body nil)))))
+        (react-host-reply request t '(:status 200 :ok t :text "{\"items\":[1,2],\"more\":false}")))
+      (should (equal log '((:items [1 2] :more nil))))
+      (let ((request (react-fetch "/missing" :then (lambda (response) (push (plist-get response :status) log))
+                                  :catch (lambda (message) (push message log)))))
+        (react-host-reply request t '(:status 404 :ok nil :text "")))
+      (should (equal (car log) 404))
+      (let ((request (react-fetch "/down" :then #'ignore :catch (lambda (message) (push message log)))))
+        (react-host-reply request nil "Failed to fetch"))
+      (should (equal (car log) "Failed to fetch"))
+      (let ((request (react-fetch "/slow" :then (lambda (_response) (push 'late log)))))
+        (react-cancel request)
+        (react-host-reply request t '(:status 200 :ok t :text "{}")))
+      (should (equal (car log) "Failed to fetch")))))
+
+(ert-deftest react-test-storage ()
+  "localStorage holds Lisp data; only changes are sent to the page."
+  (react-test--fresh
+    (react--storage-load [["count" "41"] ["todos" "((:id 1 :text \"a\" :done t))"]])
+    (should (equal (react-storage-get "count") 41))
+    (should (equal (react-storage-get "todos") '((:id 1 :text "a" :done t))))
+    (should (equal (react-storage-get "nothing" 'default) 'default))
+    (react-storage-set "count" 42)
+    (react-storage-set "count" 42)
+    (react-storage-set "filter" 'active)
+    (react-storage-remove "todos")
+    (should (equal (react-test--ops)
+                   '(("tell" "storage-set" (:key "count" :value "42"))
+                     ("tell" "storage-set" (:key "filter" :value "active"))
+                     ("tell" "storage-remove" (:key "todos")))))
+    (should (equal (react-storage-get "filter") 'active))
+    (should (equal (react-storage-get "todos") nil))))
+
+(ert-deftest react-test-interval-follows-the-component ()
+  "A clock starts its interval when mounted and stops it when unmounted."
+  (react-test--fresh
+    (react-test--load-example "async/async.el")
+    (let* ((ops (react-test--ops))
+           (interval (cadr (car (cl-remove-if-not (lambda (op) (equal (nth 2 op) "interval")) ops))))
+           (checkbox (car (react-test--listener "change" ops))))
+      (should interval)
+      (should (string-match-p "0 ticks" (react-html "#app")))
+      (react-host-reply interval t nil)
+      (react-host-reply interval t nil)
+      (should (string-match-p "2 ticks" (react-html "#app")))
+      (let ((after (mapcar (lambda (op) (append op nil)) (react-dispatch-event checkbox "change" '(:checked nil)))))
+        (should (member `("cancel" ,interval) after))
+        (should-not (string-match-p "ticks" (react-html "#app")))))))
+
 ;;;; The examples load and render
 
 (defun react-test--load-example (name)

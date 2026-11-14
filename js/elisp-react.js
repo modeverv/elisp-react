@@ -6,7 +6,9 @@
 //
 //   1. start Emacs and load react.el and the page's Emacs Lisp,
 //   2. apply the DOM operations Lisp returns,
-//   3. send DOM events to Lisp.
+//   3. send DOM events to Lisp,
+//   4. do what Lisp cannot do from inside a request: wait (timers), talk to
+//      the network (fetch), keep things (localStorage), and answer later.
 //
 // A page loads it as a module and writes its program in Emacs Lisp:
 //
@@ -43,7 +45,10 @@ async function fetchText(url) {
 // ---- DOM operations ---------------------------------------------------------
 // Lisp names DOM nodes by number (see `react-flush' in react.el).
 
-function createDom(dispatch) {
+// DOM methods Lisp may call on a node (`react-invoke').
+const INVOCABLE = new Set(["focus", "blur", "select", "click", "scrollIntoView"]);
+
+function createDom(dispatch, host) {
   const nodes = new Map();       // id -> Node
   const listeners = new Map();   // "id:event" -> function
 
@@ -124,6 +129,13 @@ function createDom(dispatch) {
       if (!container) throw new Error(`elisp-react: nothing matches ${selector}`);
       if (node(id).parentNode !== container) container.replaceChildren(node(id));
     },
+    invoke(id, method) {
+      if (!INVOCABLE.has(method)) throw new Error(`elisp-react: ${method} cannot be invoked from Lisp`);
+      node(id)[method]();
+    },
+    call(request, command, argument) { host.call(request, command, argument); },
+    tell(command, argument) { host.tell(command, argument); },
+    cancel(request) { host.cancel(request); },
   };
 
   return {
@@ -135,6 +147,69 @@ function createDom(dispatch) {
       }
     },
     nodeCount: () => nodes.size,
+  };
+}
+
+// ---- what Lisp asks of the page -------------------------------------------------
+// A request ("call") is answered later through reply(request, ok, value), which
+// runs the Lisp function that waits for it.  Starting one returns a function
+// that cancels it.
+
+// localStorage keys of this page: Lisp sees them without the prefix.
+const storagePrefix = () => `elisp-react:${location.pathname}:`;
+
+function storedEntries() {
+  const entries = [];
+  try {
+    const prefix = storagePrefix();
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key.startsWith(prefix)) entries.push([key.slice(prefix.length), localStorage.getItem(key)]);
+    }
+  } catch (_) { /* no storage (private mode, sandbox): start empty */ }
+  return entries;
+}
+
+function createHost(reply) {
+  const pending = new Map();   // request -> cancel function
+  const commands = {
+    timeout(request, milliseconds) {
+      const timer = setTimeout(() => { pending.delete(request); reply(request, true, null); }, milliseconds);
+      return () => clearTimeout(timer);
+    },
+    interval(request, milliseconds) {
+      const timer = setInterval(() => reply(request, true, null), milliseconds);
+      return () => clearInterval(timer);
+    },
+    fetch(request, { url, method, headers, body }) {
+      const controller = new AbortController();
+      // Lisp's header names are keywords: content-type, accept, ...
+      fetch(url, { method: method || "GET", headers: headers || {}, body: body ?? undefined, signal: controller.signal })
+        .then(async (response) => ({ status: response.status, ok: response.ok, text: await response.text() }))
+        .then((value) => { if (pending.delete(request)) reply(request, true, value); },
+              (error) => { if (pending.delete(request)) reply(request, false, error?.message || String(error)); });
+      return () => controller.abort();
+    },
+  };
+  const notices = {
+    "storage-set"({ key, value }) { localStorage.setItem(storagePrefix() + key, value); },
+    "storage-remove"({ key }) { localStorage.removeItem(storagePrefix() + key); },
+  };
+  return {
+    call(request, command, argument) {
+      if (!commands[command]) throw new Error(`elisp-react: unknown host command ${command}`);
+      pending.set(request, commands[command](request, argument));
+    },
+    tell(command, argument) {
+      if (!notices[command]) throw new Error(`elisp-react: unknown host command ${command}`);
+      try { notices[command](argument); } catch (error) { console.warn("[elisp-react]", command, error); }
+    },
+    cancel(request) {
+      const cancel = pending.get(request);
+      if (!cancel) return;
+      pending.delete(request);
+      cancel();
+    },
   };
 }
 
@@ -174,7 +249,10 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   const dispatch = (id, name, event) => {
     emacs.call("react-dispatch-event", id, name, event).then((ops) => dom.apply(ops), reportError);
   };
-  dom = createDom(dispatch);
+  const host = createHost((request, ok, value) => {
+    emacs.call("react-host-reply", request, ok, value).then((ops) => dom.apply(ops), reportError);
+  });
+  dom = createDom(dispatch, host);
 
   if (!sources) {
     sources = await Promise.all([...document.querySelectorAll('script[type="text/emacs-lisp"]')].map(async (script) => (
@@ -193,6 +271,7 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
     }
   };
   await load("react.el", libraryText);
+  await emacs.call("react--storage-load", storedEntries());
   for (const source of sources) await load(source.name, source.text);
   dom.apply(await emacs.call("react-flush"));
   return { emacs, dom, version: info.version, bootMs: info.bootMs };

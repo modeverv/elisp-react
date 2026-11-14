@@ -9,6 +9,10 @@
 ;;
 ;; The todos are plists in a list.  Nothing is modified in place: every
 ;; action computes a new list (`mapcar', `seq-remove', `react-plist-with').
+;;
+;; The list is kept in the page's localStorage, and starting to edit a row
+;; moves the keyboard focus into its text field: both are requests to the
+;; page, made after a render (:did-update).
 
 (require 'seq)
 (require 'subr-x)
@@ -39,6 +43,11 @@
 (react-define-component 'TodoItem
   ;; Its own state: whether it is being edited, and the text typed so far.
   :initial-state (lambda (_props) (list :editing nil :draft ""))
+  ;; When editing has just begun, the text field is on the page now.
+  :did-update (lambda (self _previous-props previous-state)
+                (when (and (react-state self :editing) (not (plist-get previous-state :editing)))
+                  (react-focus self "edit")
+                  (react-invoke self "edit" "select")))
   :render
   (lambda (self)
     (let* ((todo (react-props self :todo))
@@ -50,7 +59,7 @@
                         :on-submit (lambda (_event)
                                      (funcall act 'rename id (react-state self :draft))
                                      (react-set-state self :editing nil)))
-                   (input (:class "edit-text" :value (react-state self :draft)
+                   (input (:class "edit-text" :ref "edit" :value (react-state self :draft)
                            :on-input (lambda (event) (react-set-state self :draft (plist-get event :value)))))
                    (button (:class "save") "save")
                    (button (:class "cancel" :type "button"
@@ -74,12 +83,20 @@
 (react-define-component 'TodoApp
   :initial-state
   (lambda (_props)
-    (list :todos '((:id 1 :text "Write React in Emacs Lisp" :done t)
-                   (:id 2 :text "Give the rows keys" :done nil)
-                   (:id 3 :text "Try it in a browser" :done nil))
-          :next-id 4
-          :filter 'all
-          :draft ""))
+    ;; What was saved the last time, or a list to start with.
+    (let ((todos (react-storage-get "todos"
+                                    '((:id 1 :text "Write React in Emacs Lisp" :done t)
+                                      (:id 2 :text "Give the rows keys" :done nil)
+                                      (:id 3 :text "Try it in a browser" :done nil)))))
+      (list :todos todos
+            :next-id (1+ (apply #'max 0 (mapcar (lambda (todo) (plist-get todo :id)) todos)))
+            :filter 'all
+            :draft "")))
+  :did-mount (lambda (self) (react-focus self "new"))
+  ;; Every change of the list is saved.
+  :did-update (lambda (self _previous-props previous-state)
+                (unless (eq (react-state self :todos) (plist-get previous-state :todos))
+                  (react-storage-set "todos" (react-state self :todos))))
   :render
   (lambda (self)
     (let* ((todos (react-state self :todos))
@@ -119,7 +136,8 @@
       (jsx (main
              (h1 "todos")
              (form (:class "new" :on-submit add)
-               (input (:class "new-text" :placeholder "What needs to be done?" :value (react-state self :draft)
+               (input (:class "new-text" :ref "new" :placeholder "What needs to be done?"
+                       :value (react-state self :draft)
                        :on-input (lambda (event) (react-set-state self :draft (plist-get event :value)))))
                (button (:class "add" :disabled (string-empty-p (string-trim (react-state self :draft)))) "add"))
              (ul (:class "todos")

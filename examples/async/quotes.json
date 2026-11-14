@@ -1,0 +1,5 @@
+[
+  { "id": 1, "author": "Alan Perlis", "text": "Lisp programmers know the value of everything and the cost of nothing." },
+  { "id": 2, "author": "Edsger Dijkstra", "text": "Lisp has assisted a number of our most gifted fellow humans in thinking previously impossible thoughts." },
+  { "id": 3, "author": "Richard Stallman", "text": "The most powerful programming language is Lisp." }
+]

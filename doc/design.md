@@ -88,9 +88,28 @@ Moving the last of n rows to the front is one `insert`. (React's original "last 
 
 A listener function is never sent to JavaScript, and replacing it (every render creates new closures) costs no DOM operation: only "this node listens for click" is DOM state.
 
+## The page and time
+
+Emacs Lisp runs only inside a request of the host: an event, or the first render. It cannot wait for anything and it has no access to the page. Both limits are answered the same way the DOM is: what Lisp wants is data in the operation list.
+
+```text
+["invoke", id, method]                 focus, blur, select, click, scrollIntoView
+["tell", command, argument]            storage-set, storage-remove: no answer
+["call", request, command, argument]   timeout, interval, fetch: answered later
+["cancel", request]
+```
+
+For a `call`, Lisp keeps the function that waits under the request number (`react--requests`). The host does the work with the browser's own asynchronous APIs and then calls `react-host-reply REQUEST OK VALUE`. That is an ordinary request to Lisp: the waiting function runs, typically calls `react-set-state`, the flush renders, and the reply carries the resulting DOM operations back. An interval keeps its function until it is cancelled.
+
+So asynchronous code in a component is a callback that changes state, and time passes only in the host. `react-set-timeout`, `react-set-interval` and `react-fetch` are thin functions over `react-host-call`; a new capability is one more command in `js/elisp-react.js` and one such function.
+
+`localStorage` could have been the same, but then the first render could not use stored data. The host instead hands the page's entries to Lisp before any component code runs (`react--storage-load`); reads come from that copy, and writes update the copy and `tell` the page. Values are printed Lisp (`prin1` / `read`), so a list of plists with symbols in it is stored as it is.
+
+A `:ref` names an element for the component that rendered it. `react-invoke` emits its operation into the same list as the DOM changes, after them, which is why `:did-update` (run after the render, before the flush returns) is the place to ask for the focus of a field that the render has just created.
+
 ## Order and time
 
-The eval service answers one request at a time, in order, and the host applies each answer before the next one arrives. A burst of clicks therefore renders correctly without any locking. Everything in Lisp is synchronous: a handler runs to its end, then the render, then the answer.
+The eval service answers one request at a time, in order, and the host applies each answer before the next one arrives. A burst of clicks therefore renders correctly without any locking. Everything in Lisp is synchronous: a handler runs to its end, then the render, then the answer. Answers to requests (a timer, a response) queue up with the events.
 
 The submit event of a form is always `preventDefault`ed by the host when Lisp listens for it, because Lisp answers after the browser has made its decision.
 

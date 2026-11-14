@@ -30,6 +30,9 @@
 ;;   :style                a string, or a plist (:color "red" :margin-top "4px")
 ;;   :key                  not rendered; identifies a child among its
 ;;                         siblings (see below)
+;;   :ref                  not rendered; a name under which the component
+;;                         that rendered the element finds its DOM node
+;;                         (`react-focus', `react-invoke')
 ;;   anything else         an attribute; nil removes it, t sets it empty
 ;;
 ;; Among the children, nil is skipped and a list of elements (what `mapcar'
@@ -61,6 +64,23 @@
 ;; State is a plist.  `react-set-state' never modifies it: it installs a new
 ;; plist and schedules the component to render again.
 
+;;; The page, and time
+;;
+;; Lisp runs only while it answers the host: it cannot wait, and it cannot
+;; reach into the page.  What a component wants from the page is therefore
+;; data too, sent along with the DOM operations; the host does it, and when
+;; there is an answer it calls Lisp again, which runs the function that was
+;; waiting for it:
+;;
+;;   (react-set-timeout 1000 (lambda () ...))      also `react-set-interval'
+;;   (react-fetch "/data.json" :then (lambda (response) ...))
+;;   (react-storage-set "todos" todos)             localStorage, any Lisp data
+;;   (react-focus self "edit")                     the element with :ref "edit"
+;;
+;; Such a function typically ends in `react-set-state'.  Start timers and
+;; requests in :did-mount, react to a finished render in :did-update, stop
+;; timers in :will-unmount.
+
 ;;; Code:
 
 (require 'cl-lib)
@@ -73,7 +93,8 @@
   dom-id text)
 
 (cl-defstruct (react--host (:constructor react--host-create))
-  dom-id tag props children)
+  dom-id tag props children
+  owner)      ; the component instance whose render produced it
 
 (cl-defstruct (react--instance (:constructor react--instance-create))
   type        ; the component's name
@@ -82,7 +103,9 @@
   child       ; what it rendered, mounted
   depth       ; components between the root and this one
   dirty       ; state changed since the last render
-  mounted)    ; nil once unmounted
+  mounted     ; nil once unmounted
+  rendered-props rendered-state   ; what the last render saw
+  refs)       ; alist: ref name -> mounted element
 
 (defvar react--next-dom-id 0)
 (defvar react--ops nil "DOM operations for the host, newest first.")
@@ -90,6 +113,11 @@
 (defvar react--roots (make-hash-table :test #'equal) "Selector -> mounted root.")
 (defvar react--dirty nil "Component instances that have to render again.")
 (defvar react--did-mount nil "Instances mounted since the last flush.")
+(defvar react--did-update nil "(INSTANCE PREVIOUS-PROPS PREVIOUS-STATE) of renders since the last flush.")
+(defvar react--owner nil "The component instance that is rendering.")
+(defvar react--next-request 0)
+(defvar react--requests (make-hash-table) "Request id -> (FUNCTION . KEEP) waiting for the host.")
+(defvar react--storage (make-hash-table :test #'equal) "localStorage of this page: key -> printed value.")
 
 (defun react--emit (&rest op)
   (push (vconcat op) react--ops))
@@ -111,6 +139,8 @@
 :render FUNCTION         (SELF) -> an element.  Required.
 :initial-state FUNCTION  (PROPS) -> the first state, a plist.
 :did-mount FUNCTION      (SELF), after the component is on the page.
+:did-update FUNCTION     (SELF PREVIOUS-PROPS PREVIOUS-STATE), after each
+                         later render.
 :will-unmount FUNCTION   (SELF), before it is taken off.
 
 An element (NAME PROPS CHILD...) then renders this component.  Its
@@ -240,7 +270,7 @@ The value is the same plain list a backquote would build."
 
 (defun react--set-prop (dom-id key value)
   "Put the prop KEY with VALUE on the DOM node DOM-ID."
-  (cond ((eq key :key))
+  (cond ((memq key '(:key :ref)))
         ((react--event-name key)
          (react--emit (if value "listen" "unlisten") dom-id (react--event-name key)))
         ((memq key '(:value :checked))
@@ -290,9 +320,10 @@ The value is the same plain list a backquote would build."
     (`(host . ,tag)
      (let* ((id (react--new-dom-id))
             (props (react--element-props vnode))
-            (mounted (react--host-create :dom-id id :tag tag :props props)))
+            (mounted (react--host-create :dom-id id :tag tag :props props :owner react--owner)))
        (react--emit "create" id (symbol-name tag))
        (puthash id mounted react--hosts)
+       (react--set-ref mounted nil (plist-get props :ref))
        (let ((plist props))
          (while plist
            (when (cadr plist) (react--set-prop id (car plist) (cadr plist)))
@@ -311,9 +342,22 @@ The value is the same plain list a backquote would build."
             (instance (react--instance-create
                        :type name :spec spec :props props :depth depth :mounted t
                        :state (and initial (funcall initial props)))))
-       (setf (react--instance-child instance) (react--mount (react--render instance) (1+ depth)))
+       (setf (react--instance-rendered-props instance) props
+             (react--instance-rendered-state instance) (react--instance-state instance))
+       (let ((react--owner instance))
+         (setf (react--instance-child instance) (react--mount (react--render instance) (1+ depth))))
        (when (plist-get spec :did-mount) (push instance react--did-mount))
        instance))))
+
+(defun react--set-ref (host old new)
+  "HOST's :ref changed from the name OLD to the name NEW (nil: none)."
+  (let ((owner (react--host-owner host)))
+    (when owner
+      (when (and old (eq (cdr (assoc old (react--instance-refs owner))) host))
+        (setf (react--instance-refs owner)
+              (assoc-delete-all old (react--instance-refs owner))))
+      (when new
+        (setf (alist-get new (react--instance-refs owner) nil nil #'equal) host)))))
 
 (defun react--component-props (vnode)
   "The props a component gets from its element VNODE."
@@ -325,6 +369,7 @@ The value is the same plain list a backquote would build."
   "Forget MOUNTED and everything below it.  The DOM node is the caller's."
   (cond ((react--host-p mounted)
          (remhash (react--host-dom-id mounted) react--hosts)
+         (react--set-ref mounted (plist-get (react--host-props mounted) :ref) nil)
          (mapc #'react--unmount (react--host-children mounted)))
         ((react--instance-p mounted)
          (let ((will-unmount (plist-get (react--instance-spec mounted) :will-unmount)))
@@ -366,6 +411,8 @@ a replacement that has taken its place in the DOM."
    ((react--host-p mounted)
     (let ((props (react--element-props vnode)))
       (react--update-props (react--host-dom-id mounted) (react--host-props mounted) props)
+      (unless (equal (plist-get props :ref) (plist-get (react--host-props mounted) :ref))
+        (react--set-ref mounted (plist-get (react--host-props mounted) :ref) (plist-get props :ref)))
       (setf (react--host-props mounted) props))
     (setf (react--host-children mounted)
           (react--update-children (react--host-dom-id mounted) (react--host-children mounted)
@@ -467,9 +514,15 @@ list of mounted children."
 (defun react--rerender (instance)
   "Render INSTANCE again and reconcile what it rendered before."
   (setf (react--instance-dirty instance) nil)
-  (setf (react--instance-child instance)
-        (react--update (react--instance-child instance) (react--render instance)
-                       (1+ (react--instance-depth instance)))))
+  (when (plist-get (react--instance-spec instance) :did-update)
+    (push (list instance (react--instance-rendered-props instance) (react--instance-rendered-state instance))
+          react--did-update))
+  (setf (react--instance-rendered-props instance) (react--instance-props instance)
+        (react--instance-rendered-state instance) (react--instance-state instance))
+  (let ((react--owner instance))
+    (setf (react--instance-child instance)
+          (react--update (react--instance-child instance) (react--render instance)
+                         (1+ (react--instance-depth instance))))))
 
 ;;;; State
 
@@ -529,9 +582,9 @@ Rendering into the same place again updates what is there."
 (defun react--render-dirty ()
   "Render every component whose state changed, parents first."
   (let ((rounds 0))
-    (while (or react--dirty react--did-mount)
+    (while (or react--dirty react--did-mount react--did-update)
       (when (> (cl-incf rounds) 100)
-        (setq react--dirty nil react--did-mount nil)
+        (setq react--dirty nil react--did-mount nil react--did-update nil)
         (error "Components keep changing state while rendering"))
       (let ((dirty (sort react--dirty (lambda (a b) (< (react--instance-depth a) (react--instance-depth b))))))
         (setq react--dirty nil)
@@ -543,7 +596,12 @@ Rendering into the same place again updates what is there."
         (setq react--did-mount nil)
         (dolist (instance mounted)
           (when (react--instance-mounted instance)
-            (funcall (plist-get (react--instance-spec instance) :did-mount) instance)))))))
+            (funcall (plist-get (react--instance-spec instance) :did-mount) instance))))
+      (let ((updated (nreverse react--did-update)))
+        (setq react--did-update nil)
+        (dolist (entry updated)
+          (when (react--instance-mounted (car entry))
+            (apply (plist-get (react--instance-spec (car entry)) :did-update) entry)))))))
 
 (defun react-flush ()
   "Finish pending renders.  Returns the DOM operations since the last call.
@@ -553,7 +611,11 @@ The value is a vector of operations for the host, each a vector:
   [\"attr\" ID NAME VALUE]  [\"prop\" ID NAME VALUE]
   [\"listen\" ID EVENT]  [\"unlisten\" ID EVENT]
   [\"insert\" PARENT-ID ID BEFORE-ID]  [\"replace\" OLD-ID ID]  [\"remove\" ID]
-  [\"mount\" SELECTOR ID]"
+  [\"mount\" SELECTOR ID]
+  [\"invoke\" ID METHOD]                 call a method of the DOM node
+  [\"call\" REQUEST-ID COMMAND ARGUMENT]  do it and answer (`react-host-reply')
+  [\"tell\" COMMAND ARGUMENT]             do it, no answer
+  [\"cancel\" REQUEST-ID]"
   (react--render-dirty)
   (prog1 (vconcat (nreverse react--ops))
     (setq react--ops nil)))
@@ -566,13 +628,137 @@ Runs the element's listener and returns the DOM operations that follow."
     (when handler (funcall handler event)))
   (react-flush))
 
+;;;; The page: DOM nodes
+
+(defun react-ref (self name)
+  "The element that SELF rendered with :ref NAME, or nil.
+The value is only good for `react-invoke'."
+  (cdr (assoc name (react--instance-refs self))))
+
+(defun react-invoke (self name method)
+  "Call METHOD on the DOM node of the element SELF rendered with :ref NAME.
+METHOD is one of \"focus\", \"blur\", \"select\", \"click\" and
+\"scrollIntoView\".  It runs after the DOM changes of this render.
+Nothing happens when there is no such element."
+  (let ((host (react-ref self name)))
+    (when host (react--emit "invoke" (react--host-dom-id host) method)))
+  nil)
+
+(defun react-focus (self name)
+  "Give the keyboard focus to the element SELF rendered with :ref NAME."
+  (react-invoke self name "focus"))
+
+;;;; The page: things that take time
+
+(defun react-host-call (command argument &optional function keep)
+  "Ask the host to do COMMAND with ARGUMENT (JSON data).
+When the host answers, FUNCTION is called with OK (non-nil for success)
+and the VALUE of the answer.  With KEEP, FUNCTION stays for further
+answers (an interval).  Returns the request, for `react-cancel'.
+This is what `react-set-timeout' and `react-fetch' are made of."
+  (let ((id (cl-incf react--next-request)))
+    (when function (puthash id (cons function keep) react--requests))
+    (react--emit "call" id command argument)
+    id))
+
+(defun react-cancel (request)
+  "Forget REQUEST (a timer, a fetch): its function will not be called."
+  (when request
+    (remhash request react--requests)
+    (react--emit "cancel" request))
+  nil)
+
+(defun react-host-reply (request ok value)
+  "The host's answer to REQUEST.  Returns the DOM operations that follow."
+  (let ((entry (gethash request react--requests)))
+    (when entry
+      (unless (cdr entry) (remhash request react--requests))
+      (funcall (car entry) ok value)))
+  (react-flush))
+
+(defun react-set-timeout (milliseconds function)
+  "Call FUNCTION, without arguments, once after MILLISECONDS.
+Returns the timer, for `react-clear-timer'."
+  (react-host-call "timeout" milliseconds (lambda (_ok _value) (funcall function))))
+
+(defun react-set-interval (milliseconds function)
+  "Call FUNCTION, without arguments, every MILLISECONDS.
+Returns the timer; stop it with `react-clear-timer' (in :will-unmount)."
+  (react-host-call "interval" milliseconds (lambda (_ok _value) (funcall function)) t))
+
+(defalias 'react-clear-timer #'react-cancel)
+
+(defun react-fetch (url &rest options)
+  "Request URL with the browser's fetch.  OPTIONS is a plist:
+
+:method STRING   \"GET\" by default
+:headers PLIST   (:content-type \"application/json\")
+:body STRING
+:then FUNCTION   (RESPONSE), a plist (:status 200 :ok t :text \"...\");
+                 an HTTP error status is a response too, with :ok nil
+:catch FUNCTION  (MESSAGE), when there was no response at all
+
+Returns the request, for `react-cancel'.  `react-response-json' reads a
+JSON body."
+  (let ((then (plist-get options :then))
+        (catch (plist-get options :catch)))
+    (react-host-call
+     "fetch"
+     (list :url url :method (or (plist-get options :method) "GET")
+           :headers (plist-get options :headers) :body (plist-get options :body))
+     (lambda (ok value)
+       (cond ((and ok then) (funcall then value))
+             (ok nil)
+             (catch (funcall catch value))
+             (t (message "react-fetch: %s: %s" url value)))))))
+
+(defun react-response-json (response)
+  "The body of RESPONSE as Lisp data: objects are plists, arrays vectors."
+  (json-parse-string (plist-get response :text) :object-type 'plist :null-object nil :false-object nil))
+
+;;;; The page: localStorage
+
+;; The host hands over this page's stored values when it starts, so reading
+;; is immediate.  Values are any printable Lisp data.
+
+(defun react--storage-load (entries)
+  "ENTRIES is a vector of [KEY TEXT]: what the page has stored."
+  (clrhash react--storage)
+  (mapc (lambda (entry) (puthash (aref entry 0) (aref entry 1) react--storage)) entries)
+  nil)
+
+(defun react-storage-get (key &optional default)
+  "The Lisp value stored under KEY in the page's localStorage, or DEFAULT."
+  (let ((text (gethash key react--storage)))
+    (if text
+        (condition-case nil (car (read-from-string text)) (error default))
+      default)))
+
+(defun react-storage-set (key value)
+  "Store the Lisp VALUE under KEY in the page's localStorage."
+  (let ((text (let ((print-length nil) (print-level nil)) (prin1-to-string value))))
+    (unless (equal text (gethash key react--storage))
+      (puthash key text react--storage)
+      (react--emit "tell" "storage-set" (list :key key :value text))))
+  value)
+
+(defun react-storage-remove (key)
+  "Remove KEY from the page's localStorage."
+  (when (gethash key react--storage)
+    (remhash key react--storage)
+    (react--emit "tell" "storage-remove" (list :key key)))
+  nil)
+
 ;;;; For tests and debugging
 
 (defun react-reset ()
   "Forget everything that is mounted."
-  (setq react--next-dom-id 0 react--ops nil react--dirty nil react--did-mount nil)
+  (setq react--next-dom-id 0 react--ops nil react--dirty nil react--did-mount nil
+        react--did-update nil react--next-request 0)
   (clrhash react--hosts)
   (clrhash react--roots)
+  (clrhash react--requests)
+  (clrhash react--storage)
   nil)
 
 (defun react--html (mounted)
@@ -581,7 +767,7 @@ Runs the element's listener and returns the DOM operations that follow."
         (t (let ((attributes "") (plist (react--host-props mounted)))
              (while plist
                (let* ((key (car plist))
-                      (value (and (not (react--event-name key)) (not (eq key :key))
+                      (value (and (not (react--event-name key)) (not (memq key '(:key :ref)))
                                   (react--attribute-value key (cadr plist)))))
                  (when value
                    (setq attributes (concat attributes " " (substring (symbol-name key) 1)

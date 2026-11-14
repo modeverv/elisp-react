@@ -54,11 +54,12 @@ Emacs Lisp で書いた React です。
 ## 構成
 
 ```text
-lisp/react.el          React 本体: 要素、jsx、コンポーネント、state、key つきの差分計算（Emacs Lisp 600行）
-js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送（210行）
+lisp/react.el          React 本体: 要素、jsx、コンポーネント、state、key つきの差分計算、タイマー、fetch、保存（Emacs Lisp 760行）
+js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送、依頼への応答（290行）
 examples/counter/      state を持つコンポーネント
 examples/counters/     親が state を持ち、props で渡し、イベントで戻す例。リストと入力欄つき
-examples/todo/         TODO リスト。jsx、自分の state を持つ key つきの行、フィルタ、並べ替え
+examples/todo/         TODO リスト。jsx、自分の state を持つ key つきの行、フィルタ、並べ替え、localStorage への保存
+examples/async/        インターバル、タイムアウト、fetch（読み込み中とエラーの表示つき）
 test/react-test.el     差分計算のテスト（ネイティブの Emacs で実行。ブラウザ不要）
 test/e2e.mjs           サンプルを headless Chrome で動かすテスト
 doc/design.md          仕組み（英語）
@@ -71,12 +72,21 @@ doc/experiment-notes.md  ここまでの実験で分かったこと
 
 | | |
 |---|---|
-| `(react-define-component NAME :render F :initial-state F :did-mount F :will-unmount F)` | コンポーネントを定義します。`:render` はインスタンスを受け取り、要素を1つ返します。`(NAME PROPS CHILD...)` という要素がこのコンポーネントになり、子は `:children` という prop で届きます。 |
+| `(react-define-component NAME :render F :initial-state F :did-mount F :did-update F :will-unmount F)` | コンポーネントを定義します。`:render` はインスタンスを受け取り、要素を1つ返します。`(NAME PROPS CHILD...)` という要素がこのコンポーネントになり、子は `:children` という prop で届きます。`:did-update` はインスタンス、前回の props、前回の state を受け取ります。 |
 | `(react-props SELF [KEY])`、`(react-state SELF [KEY])` | インスタンスの props / state（plist）、またはその中の1つの値。 |
 | `(react-set-state SELF :key VALUE ...)` | 指定したキーを差し替えた新しい state を設定し、再描画します。「古い state を受け取って変更分を返す関数」を1つ渡すこともできます。1回のイベント中に何度呼んでも、描画は1回です。 |
 | `(react-mount ELEMENT SELECTOR)` | CSS セレクタで指定したページ上の要素に描画します。 |
 | `(jsx MARKUP)` | バッククォートなしで要素を作ります。HTML タグで始まる `(TAG ...)` と、大文字で始まる名前の `(Component ...)` がマークアップです。prop の値、子、それ以外のものはすべて Lisp として評価されます。その Lisp の中でマークアップを書くときは、もう一度 `jsx` を使います。 |
 | `(react-plist-with PLIST :key VALUE ...)` | 指定したキーを設定した新しい plist を返します。`PLIST` は変更しません。state の中のレコード用です。 |
+
+Lisp はページに応答している間しか動きません。待つことも、ページの中に手を伸ばすこともできません。そこでコンポーネントはページに依頼を出し、結果が出たらページが Lisp の関数を呼びます。その関数はたいてい `react-set-state` で終わります。
+
+| | |
+|---|---|
+| `(react-set-timeout MS F)`、`(react-set-interval MS F)`、`(react-clear-timer TIMER)` | あとで `F` を呼びます（1回、または繰り返し）。インターバルは `:did-mount` で始め、`:will-unmount` で止めます。 |
+| `(react-fetch URL :method :headers :body :then F :catch F)`、`(react-response-json RESPONSE)`、`(react-cancel REQUEST)` | ブラウザの `fetch` です。`:then` は `(:status 200 :ok t :text "...")` という plist を受け取ります（HTTP のエラーステータスのときも同じです）。応答そのものがなかったときは `:catch` がメッセージを受け取ります。 |
+| `(react-storage-get KEY [DEFAULT])`、`(react-storage-set KEY VALUE)`、`(react-storage-remove KEY)` | ページの `localStorage` です。印字できる Lisp データなら何でも保存できます。読み出しは即座に返ります。 |
+| 要素の `:ref "name"`、`(react-focus SELF "name")`、`(react-invoke SELF "name" METHOD)` | コンポーネントが描画した要素の DOM ノードに対して `focus`、`blur`、`select`、`click`、`scrollIntoView` を呼びます。その描画の DOM 変更のあとに実行されます（`:did-update` か `:did-mount` の中で使います）。 |
 
 増減や並べ替えのあるリストの子には `:key` を付けます（`(li (:key id) ...)`）。前回と同じ key の子は同じ子として扱われ、リスト内の位置が変わっても、DOM ノードと、その中のコンポーネントの state を保ちます。動かすノードは最小限です。key のない子は位置で対応づけます。
 
@@ -94,4 +104,4 @@ npm run test:e2e     # サンプルを headless Chrome で実行
 
 ## 制限
 
-これは実験で、フレームワークではありません。非同期処理（エフェクトやデータ取得）はありません。戻ってこないハンドラは中断できません。Emacs は約150MBのダウンロードです。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
+これは実験で、フレームワークではありません。非同期処理はコールバックで書きます（Promise や `async` はありません）。戻ってこないハンドラは中断できません。親が再描画されると子も必ず再描画されます。Emacs は初回に約150MBをダウンロードします。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
