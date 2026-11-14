@@ -179,3 +179,15 @@ With a wasmacs checkout next to this one (`../wasmacs/docs`), the server and the
 ## Limits
 
 This is an experiment, not a framework. A handler that never returns cannot be interrupted, an `async` body cannot be cancelled, and Emacs is a 150 MB download on the first visit. A render of 1000 keyed rows takes about 130 ms, about 30 ms when the rows are `:pure`. The server of `examples/server/` belongs to the example and is not one to publish ("Emacs on both ends" says what it lacks). See [doc/experiment-notes.md](doc/experiment-notes.md).
+
+## Licence
+
+MIT ([LICENSE](LICENSE)): keep the notice, and do what you want. The examples under `examples/` are starting points and ask for nothing at all ([0BSD](examples/LICENSE)): take them into an application of your own without a notice.
+
+`react.el` is Emacs Lisp and runs inside GNU Emacs, which is under the GNU GPL, version 3 or later. The GPL asks that [code combined with a GPL program](https://www.gnu.org/licenses/gpl-faq.html#GPLAndPlugins) be under a GPL-compatible licence, and MIT is one (the FSF lists it as the [Expat licence](https://www.gnu.org/licenses/license-list.html#Expat)).
+
+- **Nothing of Emacs is in this repository.** A page downloads it from the [wasmacs](https://github.com/modeverv/wasmacs) site. wasmacs's [NOTICE.md](https://github.com/modeverv/wasmacs/blob/master/NOTICE.md) says under which licences that build comes and where its source is.
+- **A site that keeps its own copy of that Emacs** distributes it under the GPL, and should keep wasmacs's `licenses/` directory next to the copy.
+- **Your own `.el` files** run inside Emacs as well and use its Lisp libraries. By the FSF's reading of the GPL, [a program that uses such libraries](https://www.gnu.org/licenses/gpl-faq.html#IfInterpreterIsGPL) is to be published under a GPL-compatible licence. A page's `app.el` is sent to every visitor, which is publishing it; MIT, 0BSD and the GPL itself all fit.
+
+elisp-react is not affiliated with Meta's React and contains none of its code.

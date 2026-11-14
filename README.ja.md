@@ -179,3 +179,15 @@ npm run test:server  # サーバーのサンプル（Emacs のサーバープロ
 ## 制限
 
 これは実験で、フレームワークではありません。戻ってこないハンドラは中断できません。`async` の本体は途中でキャンセルできません。Emacs は初回に約150MBをダウンロードします。key つきの1000行の再描画には約130ミリ秒、行を `:pure` にすると約30ミリ秒かかります。`examples/server/` のサーバーはサンプルの一部で、公開するためのものではありません（足りないものは「両側が Emacs」にあります）。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
+
+## ライセンス
+
+MIT ライセンスです（[LICENSE](LICENSE)）。ライセンスの表示を残せば、自由に使えます。`examples/` の下のサンプルは出発点として使うためのもので、条件は何もありません（[0BSD](examples/LICENSE)）。表示なしで、自分のアプリケーションに取り込めます。
+
+`react.el` は Emacs Lisp で、GNU Emacs の中で動きます。Emacs は GNU GPL（バージョン3以降）です。GPL は、[GPL のプログラムと結合されるコード](https://www.gnu.org/licenses/gpl-faq.html#GPLAndPlugins)に、GPL と両立するライセンスを求めます。MIT はその1つです（FSF の一覧では [Expat ライセンス](https://www.gnu.org/licenses/license-list.html#Expat)という名前です）。
+
+- **このリポジトリに Emacs は含まれていません。** ページが [wasmacs](https://github.com/modeverv/wasmacs) のサイトからダウンロードします。そのビルドのライセンスとソースの場所は、wasmacs の [NOTICE.md](https://github.com/modeverv/wasmacs/blob/master/NOTICE.md) にあります。
+- **その Emacs を自分のサイトにコピーして置く場合**は、GPL のもとで Emacs を配布することになります。wasmacs の `licenses/` ディレクトリを、コピーと一緒に置いてください。
+- **自分で書いた `.el` ファイル**も Emacs の中で動き、Emacs の Lisp ライブラリを使います。FSF の解釈では、[そうしたライブラリを使うプログラム](https://www.gnu.org/licenses/gpl-faq.html#IfInterpreterIsGPL)を公開するときは、GPL と両立するライセンスにする必要があります。ページの `app.el` はすべての閲覧者に送られるので、公開にあたります。MIT、0BSD、GPL そのもののいずれでも条件を満たします。
+
+elisp-react は Meta の React とは無関係で、そのコードを含みません。

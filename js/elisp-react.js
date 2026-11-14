@@ -1,4 +1,6 @@
 // elisp-react.js -- the JavaScript host of react.el.
+// Copyright (c) 2026 modeverv
+// SPDX-License-Identifier: MIT
 //
 // All of React is in Emacs Lisp (lisp/react.el), running in Emacs, which runs
 // in this page as WebAssembly (the wasmacs eval service).  This file is the

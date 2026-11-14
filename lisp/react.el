@@ -1,5 +1,8 @@
 ;;; react.el --- A small React in Emacs Lisp  -*- lexical-binding: t; -*-
 
+;; Copyright (c) 2026 modeverv
+;; SPDX-License-Identifier: MIT
+
 ;; An experiment: can the React of 2013 (components with props and state,
 ;; render functions that return a virtual DOM, reconciliation) be written in
 ;; Emacs Lisp, with the browser's DOM as the output?
