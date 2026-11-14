@@ -154,6 +154,8 @@ Props of DOM elements: `:on-click`, `:on-input`, `:on-submit`, ... are listeners
 
 A component that is defined again while it is on the page takes the new definition and renders again with the state its instances have. The host exposes this as `window.elispReact.load(name, text)`, which compiles and evaluates changed source in the running page. [elisp-studio](https://github.com/modeverv/elisp-studio) builds on it: Emacs in the browser edits the files, and the application next to it changes at every save, without a reload.
 
+[![elisp-studio: a stopwatch keeps running while it is edited in Emacs](https://raw.githubusercontent.com/modeverv/elisp-studio/main/doc/images/demo.gif)](https://github.com/modeverv/elisp-studio)
+
 ## Development
 
 ```sh
