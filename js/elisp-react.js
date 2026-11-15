@@ -333,13 +333,28 @@ function createDom(dispatch, host) {
 // runs the Lisp function that waits for it.  Starting one returns a function
 // that cancels it.
 
-// localStorage keys of this page: Lisp sees them without the prefix.
-const storagePrefix = () => `elisp-react:${location.pathname}:`;
+// localStorage keys of this page: Lisp sees them without the prefix.  The
+// prefix names the application: <meta name="elisp-react:storage"> or
+// start({storage}), else the page's directory (/app/ and /app/index.html
+// are one page).
+let storageName = null;
+const pagePath = () => location.pathname.replace(/\/index\.html$/, "/");
+const storagePrefix = () => `elisp-react:${storageName ?? pagePath()}:`;
 
 function storedEntries() {
   const entries = [];
   try {
     const prefix = storagePrefix();
+    // What a page stored under its old name (/app/index.html) moves to the
+    // new one.
+    const old = `elisp-react:${pagePath()}index.html:`;
+    if (storageName === null && pagePath().endsWith("/")) {
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith(old)) continue;
+        if (localStorage.getItem(prefix + key.slice(old.length)) === null) localStorage.setItem(prefix + key.slice(old.length), localStorage.getItem(key));
+        localStorage.removeItem(key);
+      }
+    }
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key.startsWith(prefix)) entries.push([key.slice(prefix.length), localStorage.getItem(key)]);
@@ -665,11 +680,15 @@ async function loadLisp(emacs, version, name, text, { previous = "", cache = tru
   const source = /^.*lexical-binding:/.test(text) ? text : `;;; -*- lexical-binding: t; -*-\n${text}`;
   const hash = cache || manifest ? await sourceHash(`${version}\n${previous}\n${source}`) : null;
   const storageKey = `elisp-react:compiled:${name}`;
+  // Where compiled code is kept: localStorage (cache true or "local"), the
+  // tab's sessionStorage ("session"), or nowhere (false).
+  let keep = null;
+  try { keep = cache === "session" ? sessionStorage : cache ? localStorage : null; } catch (_) { /* none */ }
   // Compiled ahead of time (tools/compile.mjs), or kept from a visit before.
   const ready = hash && manifest?.version === version && manifest.files?.[hash];
   let stored = null;
   let log = "";
-  try { stored = !ready && cache && hash && JSON.parse(localStorage.getItem(storageKey) || "null"); } catch (_) { /* compile */ }
+  try { stored = !ready && keep && hash && JSON.parse(keep.getItem(storageKey) || "null"); } catch (_) { /* compile */ }
   if (ready) stored = { hash, code: ready.code, log: ready.log, from: "manifest" };
   try {
     if (stored?.hash === hash) {
@@ -696,7 +715,7 @@ async function loadLisp(emacs, version, name, text, { previous = "", cache = tru
     if (compiled.value) {
       await emacs.eval(`(progn (load ${lispString(`${file}c`)} nil t) nil)`);
       try {
-        if (hash && cache) localStorage.setItem(storageKey, JSON.stringify({ hash, code: compiled.value, log }));
+        if (hash && keep) keep.setItem(storageKey, JSON.stringify({ hash, code: compiled.value, log }));
       } catch (_) { /* full: compile next time */ }
       return { file, log, hash, from: "compiled" };
     }
@@ -721,6 +740,12 @@ function lispTimeout() {
   const meta = document.querySelector('meta[name="elisp-react:timeout"]');
   const value = Number(meta?.content);
   return meta && Number.isFinite(value) && value >= 0 ? value : 30_000;
+}
+
+// <meta name="elisp-react:cache" content="local | session | none">.
+function cacheSetting() {
+  const value = document.querySelector('meta[name="elisp-react:cache"]')?.content;
+  return value === "none" ? false : value === "session" ? "session" : true;
 }
 
 // How long the start may take: <meta name="elisp-react:boot-timeout"
@@ -757,8 +782,12 @@ function reportError(error) {
  *   compiled  URL of a manifest made by tools/compile.mjs (default: <meta
  *             name="elisp-react:compiled">): files whose hash is in it are
  *             not compiled in the page
- *   cache     false: compile every file at every start, and keep nothing
- *             (default true: compiled code is kept in localStorage)
+ *   cache     where compiled code is kept: true or "local" (localStorage,
+ *             the default), "session" (this tab only), false (nowhere:
+ *             compile at every start); or <meta name="elisp-react:cache">
+ *   storage   the name under which the page's localStorage values are
+ *             kept (default: the page's directory), or <meta
+ *             name="elisp-react:storage">
  *   location  "browser": the page's address; "memory": one kept by the host
  *             (the default where the page has none, as in elisp-studio's
  *             preview, about:srcdoc)
@@ -810,9 +839,11 @@ export function start(options = {}) {
 
 async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.el", import.meta.url), sources = null,
                               fetch: fetchFunction = (...args) => fetch(...args), timeout = lispTimeout(),
-                              location: locationMode = "auto", cache = true,
+                              location: locationMode = "auto", cache = cacheSetting(),
+                              storage = document.querySelector('meta[name="elisp-react:storage"]')?.content ?? null,
                               compiled = document.querySelector('meta[name="elisp-react:compiled"]')?.content } = {},
               hooks = { progress() {} }) {
+  storageName = storage;
   const clientUrl = new URL("app/src/emacs-eval-client.js", wasmacs).href;
   let createEmacsEvalService;
   try {

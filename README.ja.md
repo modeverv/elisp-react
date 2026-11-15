@@ -77,7 +77,8 @@ Emacs Lisp で書いた React です。
 | `onProgress` | | `({ phase, url, bytes, from })`: 起動の進み具合です。`"build id"`、まだブラウザに無い Emacs のファイルごとの `"download"`、`"emacs"`、そしてページのファイルごとの `"lisp"`（`from` は前もってコンパイル済み、保存済み、その場でコンパイル）。同じものが `document` にイベント `elisp-react:progress` として届くので、「読み込み中…」の表示に使えます。 |
 | `location` | | `"browser"` はページのアドレス。`"memory"` はホストが持つアドレスで、`/` から始まり、履歴も持ち、ハッシュのリンクもそこでたどります。既定は `"browser"` で、ページにアドレスが無いとき（elisp-studio のプレビュー、`about:srcdoc`）は `"memory"` です。 |
 | `compiled` | `elisp-react:compiled` | `tools/compile.mjs` で作ったマニフェスト。ソースが一致するファイルは、ページの中でコンパイルしません。 |
-| `cache` | | `false` にすると、起動のたびにすべてのファイルをコンパイルし、何も保存しません（開発用ツールの「再起動」）。 |
+| `cache` | `elisp-react:cache` | コンパイル結果を置く場所: `true` か `"local"`（`localStorage`、既定）、`"session"`（このタブだけ）、`false`（meta では `"none"`。起動のたびにコンパイルし、何も保存しません。開発用ツールの「再起動」）。 |
+| `storage` | `elisp-react:storage` | `react-storage-set` がページの値を置く名前（既定はページのディレクトリ。`/app/` と `/app/index.html` は同じページです）。 |
 | `library`、`sources`、`fetch` | | `react.el` の URL、ページのスクリプトの代わりに読み込む Lisp、`fetch` の代わりに使う関数（開発用ツール向け）。 |
 
 `elisp-react.js` 自体が読み込めないと（ネットワークが無い、CDN が遮断されている）、エラーの帯も含めて何も動きません。そう知らせたいページは、数行を足せます。
@@ -191,6 +192,8 @@ Lisp はページに応答している間しか動きません。待つことも
 | `window.elispReactCommands[NAME] = (ARGUMENT, { reply, fail, node }) => CANCEL` | ページのコマンド。`reply(VALUE)` で Lisp に答え（Lisp がリクエストを保っていれば何度でも）、`fail(MESSAGE)` で失敗を答えます。`node(ID)` は Lisp が `ID` で呼ぶ DOM ノードです。返した関数は `react-cancel` のときに呼ばれます。通知は `(ARGUMENT, { node })` を受け取ります。 |
 | `(react-host-call NAME ARGUMENT FUNCTION [KEEP])`、`(react-host-tell NAME ARGUMENT)`、`(react-node-id (react-ref SELF "name"))` | そのコマンドを呼びます（`FUNCTION` は `OK` と値を受け取ります）。答えの要らないものは `react-host-tell` で伝えます。`react-node-id` は `node(ID)` に渡すノードの番号です。 |
 | `window.elispReact.send(NAME, ...ARGS)` | Lisp の関数 `NAME` を `ARGS`（JSON のデータ）で呼び、変わったところを描きます。ページが更新されたときに解決します。 |
+
+**オリジンは1つの信頼の単位です。** `localStorage`、そこに保存したコンパイル結果、Cache Storage の Emacs は、ページのオリジンのものです。同じオリジンのページなら、どれでも別のページの保存値（API キー、トークン）を読め、別のページが次に読み込むコードを書き換えられ、フレームで開いて操作することもできます。保存の名前と `cache: "session"` は、まっとうなアプリケーション同士を分けるもので、悪意のあるページからは守りません。秘密を持つアプリケーションには、信頼できないページの無い、自分だけのオリジンが要ります。`USER.github.io` のような共有のホストでは、すべてのリポジトリの Pages が1つのオリジンを共有し、利用者が開いたどんなプロジェクトでも動かす elisp-studio のページ内の studio も同じです。コンパイル結果のマニフェスト（`tools/compile.mjs`）は、オリジンの保存領域ではなくサイトから取得します。
 
 ログインについて、ページ側で決まっていることは次のとおりです（2026-11-15 に、Chrome から elisp-studio のプロジェクトサーバーに対して、セッションの Cookie と Bearer トークンを1つのページで試しました）。
 

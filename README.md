@@ -77,7 +77,8 @@ A page that starts by itself takes its settings from `<meta>` elements. A page t
 | `onProgress` | | `({ phase, url, bytes, from })`: how the start goes: `"build id"`, `"download"` of each file Emacs needs that is not in the browser yet, `"emacs"`, then `"lisp"` for each file of the page (`from`: compiled ahead, kept, compiled). The same goes to `document` as the event `elisp-react:progress`, for a "Loading…" line. |
 | `location` | | `"browser"`: the page's address. `"memory"`: one the host keeps, starting at `/`, with its own history; hash links are followed there. The default is `"browser"`, and `"memory"` where the page has no address (elisp-studio's preview, `about:srcdoc`). |
 | `compiled` | `elisp-react:compiled` | A manifest made by `tools/compile.mjs`: files whose source matches are not compiled in the page. |
-| `cache` | | `false`: compile every file at every start and keep nothing (a development tool's "restart"). |
+| `cache` | `elisp-react:cache` | Where compiled code is kept: `true` or `"local"` (`localStorage`, the default), `"session"` (this tab only), `false` (`"none"` in the meta: compile at every start, keep nothing; a development tool's "restart"). |
+| `storage` | `elisp-react:storage` | The name under which `react-storage-set` keeps the page's values (default: the page's directory; `/app/` and `/app/index.html` are one page). |
 | `library`, `sources`, `fetch` | | `react.el`'s URL; Lisp to load instead of the page's scripts; a function to use instead of `fetch` (for development tools). |
 
 If `elisp-react.js` itself cannot be loaded (no network, a blocked CDN), nothing runs, not even the error box. A page that wants to say so can add a few lines:
@@ -191,6 +192,8 @@ What the host cannot do, the page's own script can, and the two can talk:
 | `window.elispReactCommands[NAME] = (ARGUMENT, { reply, fail, node }) => CANCEL` | A command of the page. `reply(VALUE)` answers Lisp (again and again if Lisp kept the request), `fail(MESSAGE)` answers with a failure, `node(ID)` is the DOM node Lisp knows by `ID`; a returned function is called by `react-cancel`. A notice gets `(ARGUMENT, { node })`. |
 | `(react-host-call NAME ARGUMENT FUNCTION [KEEP])`, `(react-host-tell NAME ARGUMENT)`, `(react-node-id (react-ref SELF "name"))` | Call such a command (`FUNCTION` gets `OK` and the value), or tell it without an answer. `react-node-id` names a node for `node(ID)`. |
 | `window.elispReact.send(NAME, ...ARGS)` | Call the Lisp function `NAME` with `ARGS` (JSON data) and render what it changed; resolves when the page is updated. |
+
+**An origin is one trust.** `localStorage`, the compiled code kept in it and Emacs in Cache Storage belong to the page's origin, and so does every page of it: any page of an origin can read another's stored values (an API key, a token), change the code another one loads next time, or simply open it in a frame and script it. The storage name and `cache: "session"` keep honest applications apart, not hostile ones. An application that keeps secrets needs an origin of its own, without pages it does not trust; on a shared host such as `USER.github.io` every repository's Pages share one, and so does elisp-studio's in-page studio, which runs whatever project its user opens. A manifest of compiled code (`tools/compile.mjs`) is fetched from the site, not kept in the origin's storage.
 
 Signing in, as far as the page is concerned (tried on 2026-11-15 from Chrome against elisp-studio's project server, a session cookie and a bearer token in one page):
 
