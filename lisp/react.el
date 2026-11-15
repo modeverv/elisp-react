@@ -1233,30 +1233,102 @@ a response."
   (lambda (resolve reject)
     (apply #'react-fetch url :then resolve :catch reject options)))
 
+;; `react-async' returns a task, which is an awaitable too: another body
+;; can wait for its value.
+
+(cl-defstruct (react-task (:constructor react--task-create) (:copier nil))
+  iterator
+  request      ; what the awaitable it waits for returned (a request), for cancelling
+  state        ; nil while running, then `done', `failed' or `cancelled'
+  value        ; the body's value, or the failure's message
+  waiting)     ; (RESOLVE . REJECT) of those who await it
+
 (defun react--await-value (answer)
   "What `react-await' evaluates to, given the runner's ANSWER."
   (if (eq (car-safe answer) 'react--rejected)
       (signal 'react-async-error (list (cdr answer)))
     (cdr answer)))
 
+(defun react--awaitable (value)
+  "VALUE as a function of RESOLVE and REJECT: a task becomes one."
+  (if (react-task-p value)
+      (lambda (resolve reject)
+        (pcase (react-task-state value)
+          ('done (funcall resolve (react-task-value value)))
+          ((or 'failed 'cancelled) (funcall reject (react-task-value value)))
+          (_ (push (cons resolve reject) (react-task-waiting value)))))
+    value))
+
 (defmacro react-await (awaitable)
   "Inside `react-async': wait for AWAITABLE and return its value.
-The Lisp code stops here and Emacs goes back to the page; when the page
-has the answer, the code goes on.  If the operation fails, this signals
-`react-async-error', which `condition-case' around it can handle.
-State may have changed in the meantime: read it again after an await."
+AWAITABLE is a function of RESOLVE and REJECT, or a task (the value of
+another `react-async').  The Lisp code stops here and Emacs goes back to
+the page; when the page has the answer, the code goes on.  If the
+operation fails, this signals `react-async-error', which `condition-case'
+around it can handle.  State may have changed in the meantime: read it
+again after an await."
   `(react--await-value (iter-yield ,awaitable)))
 
-(defun react--async-step (iterator answer)
-  "Run ITERATOR until its next await, handing it ANSWER for the last one."
-  (condition-case nil
-      (funcall (iter-next iterator answer)
-               (lambda (value) (react--async-step iterator (cons 'react--resolved value)))
-               (lambda (message) (react--async-step iterator (cons 'react--rejected message))))
-    (iter-end-of-sequence nil)))
+(defun react--task-settle (task state value)
+  (setf (react-task-state task) state (react-task-value task) value (react-task-request task) nil)
+  (let ((waiting (reverse (react-task-waiting task))))
+    (setf (react-task-waiting task) nil)
+    (dolist (waiter waiting)
+      (funcall (if (eq state 'done) (car waiter) (cdr waiter)) value))))
+
+(defun react--async-step (task answer)
+  "Run TASK until its next await, handing it ANSWER for the last one.
+An awaitable that answers at once (a task that has finished, say) does
+not make the stack deeper: the loop goes on instead."
+  (let ((next (list answer)))
+    (while next
+      (let ((answer (car next)) awaitable)
+        (setq next nil)
+        (unless (react-task-state task)
+          (condition-case err
+              (setq awaitable (react--awaitable (iter-next (react-task-iterator task) answer)))
+            (iter-end-of-sequence (react--task-settle task 'done (cdr err)))
+            (error
+             (let ((waiting (react-task-waiting task)))
+               (react--task-settle task 'failed (error-message-string err))
+               ;; Nobody waits for this task: the error is the page's.
+               (unless waiting (signal (car err) (cdr err))))))
+          (when awaitable
+            (let ((calling t) settled)
+              (setf (react-task-request task)
+                    (funcall awaitable
+                             (lambda (value)
+                               (if calling (setq settled (cons 'react--resolved value))
+                                 (react--async-step task (cons 'react--resolved value))))
+                             (lambda (message)
+                               (if calling (setq settled (cons 'react--rejected message))
+                                 (react--async-step task (cons 'react--rejected message))))))
+              (setq calling nil)
+              (when settled (setq next (list settled))))))))))
+
+(defconst react--await-forbidden
+  '(lambda function closure with-temp-buffer with-current-buffer save-excursion save-current-buffer
+    save-restriction save-match-data mapcar mapc mapcan mapconcat seq-doseq seq-do seq-map maphash
+    cl-loop unwind-protect)
+  "Forms that `react-await' cannot be inside, because generator.el's
+rewrite of `react-async' does not reach into them.")
+
+(defun react--check-awaits (form &optional inside)
+  "Signal an error if a `react-await' in FORM is inside a form it cannot be in."
+  (when (consp form)
+    (cond ((eq (car form) 'quote))
+          ((memq (car form) '(react-await iter-yield))
+           (when inside
+             (error "react-await cannot be inside %s (generator.el does not rewrite it): %S"
+                    inside form))
+           (react--check-awaits (cdr form) inside))
+          (t (let ((head (and (symbolp (car form)) (memq (car form) react--await-forbidden) (car form))))
+               (while (consp form)
+                 (react--check-awaits (car form) (or inside head))
+                 (setq form (cdr form))))))))
 
 (defmacro react-async (&rest body)
-  "Run BODY, in which `react-await' waits for the page.
+  "Run BODY, in which `react-await' waits for the page.  Returns a task.
 
   (react-async
     (react-set-state self :status \='loading)
@@ -1266,12 +1338,62 @@ State may have changed in the meantime: read it again after an await."
                            :data (react-response-json response)))
       (react-async-error (react-set-state self :status \='failed))))
 
-BODY starts at once and runs until its first await; `react-async' then
-returns nil, and the rest happens when the page answers.  Loops and
-conditionals may contain awaits; an `unwind-protect' cleanup form and a
-`lambda' inside BODY may not (it is a generator: see `iter-lambda')."
+BODY starts at once and runs until its first await; the rest happens when
+the page answers.  The task is the body's value to whoever awaits it
+\(another body, `react-all'); `react-task-cancel' stops it.
+
+BODY is a generator (see `iter-lambda'), with these rules:
+- `react-await' may be in loops and conditionals, not inside a `lambda',
+  `with-temp-buffer', `save-excursion', `mapcar' and the like, or the
+  cleanup of `unwind-protect': an error at macro expansion says so.
+- A closure made in a loop that awaits shares the loop variable with the
+  others: bind it again inside, (let ((item item)) (lambda () item))."
   (declare (indent 0))
-  `(react--async-step (funcall (iter-lambda () ,@body)) nil))
+  (react--check-awaits body)
+  `(let ((task (react--task-create :iterator (funcall (iter-lambda () ,@body)))))
+     (react--async-step task nil)
+     task))
+
+(defun react-task-cancel (task)
+  "Stop TASK: the request it waits for is cancelled, it never goes on,
+and those who await it get a `react-async-error' (\"cancelled\")."
+  (when (and (react-task-p task) (null (react-task-state task)))
+    (let ((request (react-task-request task)))
+      (when (integerp request) (react-cancel request)))
+    (react--task-settle task 'cancelled "cancelled"))
+  nil)
+
+(defun react-all (awaitables)
+  "An awaitable whose value is the list of the values of AWAITABLES
+\(functions of RESOLVE and REJECT, or tasks), in order, once all have
+answered; it fails as soon as one of them fails."
+  (lambda (resolve reject)
+    (let* ((awaitables (mapcar #'react--awaitable awaitables))
+           (values (make-vector (length awaitables) nil))
+           (left (length awaitables))
+           (failed nil) (index -1))
+      (if (zerop left)
+          (funcall resolve nil)
+        (dolist (awaitable awaitables)
+          (let ((at (cl-incf index)))
+            (funcall awaitable
+                     (lambda (value)
+                       (unless failed
+                         (aset values at value)
+                         (when (zerop (cl-decf left)) (funcall resolve (append values nil)))))
+                     (lambda (message)
+                       (unless failed (setq failed t) (funcall reject message))))))))
+    nil))
+
+(defun react-race (awaitables)
+  "An awaitable that answers as the first of AWAITABLES answers."
+  (lambda (resolve reject)
+    (let ((settled nil))
+      (dolist (awaitable (mapcar #'react--awaitable awaitables))
+        (funcall awaitable
+                 (lambda (value) (unless settled (setq settled t) (funcall resolve value)))
+                 (lambda (message) (unless settled (setq settled t) (funcall reject message))))))
+    nil))
 
 ;;;; The page: its own events
 

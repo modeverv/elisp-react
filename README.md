@@ -199,7 +199,9 @@ The same asynchronous code can be written top to bottom. `react-async` runs its 
 
 | | |
 |---|---|
-| `(react-async BODY...)`, `(react-await AWAITABLE)` | Loops and conditionals may contain awaits. A failed operation signals `react-async-error` at the await. Read state again after an await: it may have changed. |
+| `(react-async BODY...)`, `(react-await AWAITABLE)` | Loops and conditionals may contain awaits. A failed operation signals `react-async-error` at the await. Read state again after an await: it may have changed. `react-async` returns a task, which is awaitable: its value is the body's. An await inside a `lambda`, `with-temp-buffer`, `save-excursion`, `mapcar` and the like is an error when the body is compiled (generator.el does not reach into them), and a closure made in a loop that awaits needs its own binding: `(let ((item item)) (lambda () item))`. |
+| `(react-task-cancel TASK)` | Stop a task: the request it waits for is cancelled, it never goes on, and those who await it get `react-async-error` ("cancelled"). A component stops its tasks when it is taken off with `react-effect`: `(react-effect self 'load (react-props self :id) (lambda () (let ((task (react-async ...))) (lambda () (react-task-cancel task)))))`. |
+| `(react-all AWAITABLES)`, `(react-race AWAITABLES)` | Awaitables over several (functions or tasks): all the values in order, failing as soon as one fails; or the first answer. |
 | `(react-sleep MS)`, `(react-fetch-async URL OPTIONS...)` (those of `react-fetch` but `:then` and `:catch`) | Awaitables. Any function of `(RESOLVE REJECT)` that calls one of them once is an awaitable. |
 
 Data that several components or several visits of a page read is kept by key:

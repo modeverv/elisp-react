@@ -793,6 +793,49 @@
       (should-error (react-host-reply (car (car (react-test--calls (react-test--ops)))) nil "gone")
                     :type 'react-async-error))))
 
+(ert-deftest react-test-async-tasks ()
+  "A task is awaited, combined and cancelled; immediate answers do not nest."
+  (react-test--fresh
+    (let (log calls inner outer)
+      ;; One body awaits the value of another.
+      (setq inner (react-async (react-await (react-sleep 10)) 'inner-value))
+      (setq outer (react-async (push (react-await inner) log)))
+      (should (react-task-p outer))
+      (react-test--reply (car (car (react-test--calls (react-test--ops)))) t nil)
+      (should (equal log '(inner-value)))
+      (should (eq (react-task-state outer) 'done))
+      ;; all and race.
+      (setq log nil)
+      (react-async
+        (push (react-await (react-all (list (react-sleep 5) inner (lambda (resolve _reject) (funcall resolve 3)))))
+              log)
+        (push (react-await (react-race (list (react-sleep 50) (react-sleep 5)))) log))
+      (setq calls (react-test--calls (react-test--ops)))
+      (setq calls (react-test--reply (car (car calls)) t nil))   ; the sleep of all
+      (should (equal log '((nil inner-value 3))))
+      (react-test--reply (car (cadr calls)) t nil)               ; the shorter sleep wins
+      (should (equal (length log) 2))
+      ;; Cancelled: the request is cancelled and the body never goes on;
+      ;; whoever awaits it hears of it.
+      (setq log nil)
+      (let* ((slow (react-async (react-await (react-fetch-async "/slow")) (push 'not-reached log)))
+             (request (car (car (react-test--calls (react-test--ops))))))
+        (react-async (condition-case err (react-await slow)
+                       (react-async-error (push (cadr err) log))))
+        (react-task-cancel slow)
+        (should (equal (react-test--ops) `(("cancel" ,request))))
+        (react-host-reply request t '(:status 200 :ok t :text ""))
+        (should (equal log '("cancelled")))))
+    ;; Awaitables that answer at once do not make the stack deeper.
+    (let ((now (lambda (resolve _reject) (funcall resolve 1)))
+          (sum 0))
+      (react-async (dotimes (_ 5000) (setq sum (+ sum (react-await now)))))
+      (should (= sum 5000)))
+    ;; An await where generator.el cannot reach is an error at expansion.
+    (should-error (macroexpand-all '(react-async (with-temp-buffer (react-await x)))))
+    (should-error (macroexpand-all '(react-async (mapcar (lambda (y) (react-await y)) ys))))
+    (should (macroexpand-all '(react-async (dolist (y ys) (react-await y)))))))
+
 (ert-deftest react-test-async-in-a-component ()
   "State set after an await renders like any other."
   (react-test--fresh

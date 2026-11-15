@@ -145,7 +145,9 @@ The address is data too. The host hands Lisp `(:href :pathname :search :hash)` b
 
 Nothing else is new: `react-sleep` and `react-fetch-async` are awaitables over the same host calls, the generator is resumed inside `react-host-reply`, and the state it sets is rendered by the flush that ends that request. Because the page's Lisp is byte-compiled when it is loaded, the rewriting into a state machine happens once, not at every call.
 
-Limits inherited from `generator.el`: an await cannot be inside a `lambda` in the body or in the cleanup forms of `unwind-protect`. There is no cancellation, and an `async` body has no value to wait for (no composition of async functions).
+`react-async` returns a task: the iterator, the request the awaitable it waits for returned (for cancelling), its state, and those who await it. A task is awaitable, so bodies compose, and `react-all` and `react-race` combine awaitables. An awaitable that answers before it returns (a finished task) is not resumed from inside its own call: the runner loops instead, so a thousand such awaits do not make the stack a thousand frames deeper. A failure in a body rejects those who await the task; when nobody does, it is signalled to the page as before.
+
+Limits inherited from `generator.el`: an await cannot be inside a `lambda` in the body, in the cleanup forms of `unwind-protect`, or inside forms that run code in a dynamic extent of their own (`with-temp-buffer`, `save-excursion`, `mapcar` ...): the rewrite does not reach into them. `react-async` checks this when it is expanded and says where. A closure made in a loop that awaits shares the loop variable with the closures of other iterations.
 
 ## Effects
 
