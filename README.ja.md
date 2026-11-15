@@ -170,6 +170,13 @@ Lisp はページに応答している間しか動きません。待つことも
 | `(react-async BODY...)`、`(react-await AWAITABLE)` | ループや条件分岐の中でも await できます。処理が失敗すると、その await の位置で `react-async-error` が発生します。await のあとでは state が変わっている可能性があるので、読み直してください。 |
 | `(react-sleep MS)`、`(react-fetch-async URL OPTIONS...)`（`react-fetch` の引数から `:then` と `:catch` を除いたもの） | await できるものです。`(RESOLVE REJECT)` を受け取り、どちらかを1回呼ぶ関数なら何でも await できます。 |
 
+いくつもの部品や、同じページへの何度もの訪問が読むデータは、キーごとに保ちます。
+
+| | |
+|---|---|
+| `(react-query SELF KEY LOADER :stale-ms MS)` | 描画の中で使います。`KEY`（`equal` で比べる任意の Lisp データ）のデータを、`LOADER` で読み込みます。`LOADER` は await できるものを返す関数です（`(lambda () (react-fetch-async "/videos.json"))`）。返り値は `(:status STATUS :data DATA :error ERROR :fetching BOOL)` で、`STATUS` は `loading`、`success`、`error` のどれかです。同じキーを求める部品はリクエストとデータを共有します。戻ってきた部品はデータをすぐに表示し、`:stale-ms`（既定 0）より古いキーは裏で読み込み直します。データが届くと、`:pure` かどうかにかかわらず、部品は描き直されます。 |
+| `(react-invalidate PREFIX)`、`(react-query-set KEY DATA)`、`(react-query-data KEY)` | `PREFIX` そのもの、またはリスト `PREFIX` で始まるリストのキーをすべて古いことにします。読み込み直し、途中の答えは捨てます。キーにデータを手で置きます（楽観的な更新）。部品を依存させずにキーを読みます。 |
+
 既定では、親が再描画されると子も必ず再描画されます。コンポーネントはこれを断ることができます。
 
 | | |
