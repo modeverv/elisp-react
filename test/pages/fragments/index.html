@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>fragments</title>
+<table><tbody id="rows"></tbody></table>
+<dl id="terms"></dl>
+<script type="text/emacs-lisp">
+;; A row that opens a second row below it: two <tr> from one component.
+(react-define-component 'Row
+  :initial-state (lambda (_props) (list :open nil))
+  :render
+  (lambda (self)
+    (let ((name (react-props self :name)))
+      (jsx (<> (tr (:class "row" :on-click (lambda (_event) (react-set-state self :open (not (react-state self :open)))))
+                 (td name))
+               (when (react-state self :open)
+                 (jsx (tr (:class "detail") (td (format "about %s" name))))))))))
+
+;; The rows and a row of buttons, straight into the <tbody>.
+(react-define-component 'Rows
+  :initial-state (lambda (_props) (list :names '("a" "b" "c")))
+  :render
+  (lambda (self)
+    (jsx (<> (mapcar (lambda (name) (jsx (Row (:key name :name name)))) (react-state self :names))
+             (tr (:class "controls")
+               (td (button (:class "reverse"
+                            :on-click (lambda (_event) (react-set-state self :names (reverse (react-state self :names)))))
+                     "reverse")
+                   (button (:class "drop"
+                            :on-click (lambda (_event) (react-set-state self :names (cdr (react-state self :names)))))
+                     "drop")))))))
+
+;; A list of elements from a render is a fragment too.
+(react-define-component 'Term
+  :render (lambda (self) (list (jsx (dt (react-props self :term))) (jsx (dd (react-props self :text))))))
+
+(react-mount '(Rows) "#rows")
+(react-mount (jsx (<> (Term (:term "one" :text "first")) (Term (:term "two" :text "second")))) "#terms")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

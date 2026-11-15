@@ -8,6 +8,7 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'react)
+(require 'react-testing)
 
 (defun react-test--ops ()
   "Pending operations as lists."
@@ -460,6 +461,192 @@
                                            items ""))))
           (should (equal (react-html "#app") expected))
           (should (equal (react-test--dom-html react-test--dom-root) expected)))))))
+
+;;;; Fragments
+
+;; The page model of react-testing.el takes the operations as the host
+;; does; both trees are written with a fragment's anchor (an empty text
+;; node) as |, so that a node in the wrong place shows.
+
+(defun react-test--page-shape (node)
+  (let ((text (react-testing--node-text node)))
+    (cond ((equal text "") "|")
+          (text text)
+          (t (format "<%s>%s</%s>" (react-testing--node-tag node)
+                     (mapconcat #'react-test--page-shape (react-testing--node-children node) "")
+                     (react-testing--node-tag node))))))
+
+(defun react-test--mounted-shape (mounted)
+  (cond ((react--text-p mounted)
+         (if (equal (react--text-text mounted) "") "|" (react--text-text mounted)))
+        ((react--host-p mounted)
+         (format "<%s>%s</%s>" (react--host-tag mounted)
+                 (mapconcat #'react-test--mounted-shape (react--host-children mounted) "")
+                 (react--host-tag mounted)))
+        ((react--fragment-p mounted)
+         (concat (mapconcat #'react-test--mounted-shape (react--fragment-children mounted) "") "|"))
+        (t (react-test--mounted-shape (react--instance-child mounted)))))
+
+(defun react-test--mounted-count (mounted)
+  "The DOM nodes of MOUNTED, everything below included."
+  (cond ((react--text-p mounted) 1)
+        ((react--host-p mounted) (1+ (apply #'+ (mapcar #'react-test--mounted-count (react--host-children mounted)))))
+        ((react--fragment-p mounted) (1+ (apply #'+ (mapcar #'react-test--mounted-count (react--fragment-children mounted)))))
+        (t (react-test--mounted-count (react--instance-child mounted)))))
+
+(defun react-test--same-page (&optional selector)
+  "Non-nil if the page model shows what is mounted at SELECTOR, and holds
+no node more."
+  (let* ((selector (or selector "#app"))
+         (root (gethash selector react--roots))
+         (page (mapconcat #'react-test--page-shape
+                          (react-testing--node-children (cdr (assoc selector react-testing--roots))) "")))
+    (or (and (equal page (react-test--mounted-shape root))
+             (= (hash-table-count react-testing--nodes) (react-test--mounted-count root)))
+        (error "The page is %s with %d nodes; mounted: %s with %d" page (hash-table-count react-testing--nodes)
+               (react-test--mounted-shape root) (react-test--mounted-count root)))))
+
+(ert-deftest react-test-fragment-renders-siblings ()
+  "A fragment's children stand among their parent's children; a component
+that renders a list renders a fragment."
+  (should (equal (jsx (<> (dt "a") (dd "b"))) '(<> nil (dt nil "a") (dd nil "b"))))
+  (react-define-component 'react-test-term
+    :render (lambda (self) (jsx (<> (dt (react-props self :term)) (dd (react-props self :text))))))
+  (react-define-component 'react-test-cells
+    :render (lambda (self) (mapcar (lambda (cell) (jsx (td cell))) (react-props self :cells))))
+  (react-testing-render '(div () (dl () (react-test-term (:term "a" :text "first")) (react-test-term (:term "b" :text "second")))
+                              (table () (tr () (th () "row") (react-test-cells (:cells ("1" "2"))) (td () "end")))))
+  (should (equal (react-testing-html)
+                 "<div><dl><dt>a</dt><dd>first</dd><dt>b</dt><dd>second</dd></dl><table><tr><th>row</th><td>1</td><td>2</td><td>end</td></tr></table></div>"))
+  (should (equal (react-html "#app") (react-testing-html)))
+  (should (react-test--same-page))
+  (should (equal (react-render-to-string '(ul () (<> () (li () "a") (<> () (li () "b"))) (li () "c")))
+                 "<ul><li>a</li><li>b</li><li>c</li></ul>"))
+  ;; :key and nothing else.
+  (should-error (react-testing-render '(<> (:class "x") "text")))
+  ;; A provider with several children renders them as a fragment.
+  (react-testing-render (react-provide 'theme "dark" '(<> () (p () "one") (p () "two"))))
+  (should (equal (react-testing-html) "<p>one</p><p>two</p>")))
+
+(ert-deftest react-test-fragment-changes-shape ()
+  "A component's output goes from an element to a fragment, to an empty
+one, to text and back, between siblings; a fragment at the root."
+  (let (set)
+    (react-define-component 'react-test-shapes
+      :initial-state (lambda (_props) (list :shape 'element))
+      :render (lambda (self)
+                (setq set (lambda (shape) (react-set-state self :shape shape)))
+                (pcase (react-state self :shape)
+                  ('element '(li () "one"))
+                  ('fragment '(<> () (li () "a") (li () "b") (li () "c")))
+                  ('fewer '(<> () (li () "c") (li () "a")))
+                  ('empty '(<> ()))
+                  ('text "plain")
+                  ('list '((li () "x") (li () "y"))))))
+    (react-testing-render '(ul () (li () "before") (react-test-shapes) (li () "after")))
+    (dolist (step '((fragment . "<li>a</li><li>b</li><li>c</li>") (fewer . "<li>c</li><li>a</li>")
+                    (empty . "") (fragment . "<li>a</li><li>b</li><li>c</li>") (element . "<li>one</li>")
+                    (empty . "") (text . "plain") (list . "<li>x</li><li>y</li>") (element . "<li>one</li>")))
+      (funcall set (car step))
+      (react-testing-flush)
+      (should (equal (react-testing-html) (format "<ul><li>before</li>%s<li>after</li></ul>" (cdr step))))
+      (should (react-test--same-page)))
+    ;; One element for one element is still one "replace".
+    (funcall set 'text)
+    (should (equal (mapcar (lambda (op) (aref op 0)) (react-flush)) '("text" "replace")))
+    ;; The root itself.
+    (react-testing-render '(<> () (p () "a") (p () "b")))
+    (should (equal (react-testing-html) "<p>a</p><p>b</p>"))
+    (should (react-test--same-page))
+    (react-mount '(<> () (p () "b") (p () "c") (p () "d")) "#app")
+    (react-testing-flush)
+    (should (equal (react-testing-html) "<p>b</p><p>c</p><p>d</p>"))
+    (should (react-test--same-page))
+    (react-mount '(p () "single") "#app")
+    (react-testing-flush)
+    (should (equal (react-testing-html) "<p>single</p>"))
+    (should (react-test--same-page))
+    (react-unmount "#app")
+    (react-testing-flush)
+    (should (equal (react-testing-html) ""))
+    (should (= (hash-table-count react-testing--nodes) 0))))
+
+(defvar react-test--set-groups nil)
+
+(react-define-component 'react-test-cell
+  :initial-state (lambda (_props) (list :clicks 0))
+  :render (lambda (self)
+            `(li (:on-click ,(lambda (_event) (react-set-state self :clicks (1+ (react-state self :clicks)))))
+                 ,(format "%s:%d" (react-props self :name) (react-state self :clicks)))))
+
+(react-define-component 'react-test-group
+  ;; A list of cells (a fragment), or nil (text) when there are none.
+  :render (lambda (self)
+            (let ((name (react-props self :name)))
+              (mapcar (lambda (i) `(react-test-cell (:key ,i :name ,(format "%s.%d" name i))))
+                      (number-sequence 0 (1- (react-props self :size)))))))
+
+(react-define-component 'react-test-groups
+  :initial-state (lambda (props) (list :groups (plist-get props :groups)))
+  :render (lambda (self)
+            (setq react-test--set-groups (lambda (groups) (react-set-state self :groups groups)))
+            `(ul ()
+                 ,@(mapcar (lambda (group)
+                             (let ((name (car group)) (size (cdr group)))
+                               ;; Some groups in a keyed fragment of their own,
+                               ;; with a nested one around a last cell.
+                               (if (cl-evenp (length name))
+                                   `(<> (:key ,name)
+                                        (react-test-group (:name ,name :size ,size))
+                                        (<> () ,(and (> size 1) `(li () ,(concat name "!")))))
+                                 `(react-test-group (:key ,name :name ,name :size ,size)))))
+                           (react-state self :groups)))))
+
+(ert-deftest react-test-fragment-random-groups ()
+  "Groups of rows that are fragments are added, removed, resized and
+shuffled: the page follows, nodes and anchors in place, and the rows'
+state follows their keys."
+  (random "fragments")
+  (let ((groups (mapcar (lambda (n) (cons (format "g%d" n) (random 4))) (number-sequence 1 5)))
+        (next 5)
+        (clicks (make-hash-table :test #'equal)))
+    (react-testing-render `(react-test-groups (:groups ,groups)))
+    (dotimes (_ 300)
+      (setq groups (cl-remove-if (lambda (_group) (= 0 (random 5))) groups))
+      (dotimes (_ (random 3)) (push (cons (format "g%d" (cl-incf next)) (random 4)) groups))
+      (setq groups (mapcar (lambda (group) (if (= 0 (random 3)) (cons (car group) (random 4)) group)) groups))
+      (setq groups (mapcar #'cdr (sort (mapcar (lambda (group) (cons (random 1000) group)) groups)
+                                       (lambda (a b) (< (car a) (car b))))))
+      (funcall react-test--set-groups groups)
+      (react-testing-flush)
+      ;; Cells that are gone lose their state.
+      (maphash (lambda (cell _count)
+                 (let* ((dot (string-match "\\.\\([0-9]+\\)\\'" cell))
+                        (index (string-to-number (match-string 1 cell)))
+                        (name (substring cell 0 dot)))
+                   (unless (cl-some (lambda (group) (and (equal (car group) name) (< index (cdr group)))) groups)
+                     (remhash cell clicks))))
+               clicks)
+      ;; Click a cell.
+      (let ((cells (react-testing-find-all :tag 'li)))
+        (when cells
+          (let* ((cell (nth (random (length cells)) cells))
+                 (name (car (split-string (react-testing-text cell) ":"))))
+            (unless (string-suffix-p "!" name)
+              (puthash name (1+ (gethash name clicks 0)) clicks)
+              (react-testing-click cell)))))
+      (should (react-test--same-page))
+      (should (equal (react-testing-html)
+                     (format "<ul>%s</ul>"
+                             (mapconcat
+                              (lambda (group)
+                                (concat (mapconcat (lambda (i)
+                                                     (let ((cell (format "%s.%d" (car group) i)))
+                                                       (format "<li>%s:%d</li>" cell (gethash cell clicks 0))))
+                                                   (number-sequence 0 (1- (cdr group))) "")
+                                        (if (and (cl-evenp (length (car group))) (> (cdr group) 1))
+                                            (format "<li>%s!</li>" (car group)) "")))
+                              groups "")))))))
 
 ;;;; jsx
 

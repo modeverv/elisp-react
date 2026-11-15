@@ -257,6 +257,29 @@ try {
   assert.equal(await js("document.querySelectorAll('.chart rect')[3].namespaceURI"), "http://www.w3.org/2000/svg");
   pass("svg: Lisp draws inline SVG in the SVG namespace (also elements added later); script URLs in links and animations are refused");
 
+  // ---- fragments --------------------------------------------------------------------
+  await open("fragments");
+  const rows = () => js("[...document.querySelector('#rows').children].map((row) => `${row.className}:${row.textContent}`)");
+  await until("document.querySelectorAll('#rows tr.row').length === 3", "the rows are there");
+  assert.deepEqual(await rows(), ["row:a", "row:b", "row:c", "controls:reversedrop"]);
+  assert.deepEqual(await js("[...document.querySelector('#terms').children].map((node) => node.tagName + ':' + node.textContent)"),
+    ["DT:one", "DD:first", "DT:two", "DD:second"]);
+  await js("document.querySelectorAll('#rows tr.row')[1].click(); true");
+  await until("document.querySelector('#rows tr.detail')?.textContent === 'about b'", "row b opens its detail row");
+  assert.deepEqual(await rows(), ["row:a", "row:b", "detail:about b", "row:c", "controls:reversedrop"]);
+  await click(".reverse");
+  await until("document.querySelector('#rows tr.row').textContent === 'c'", "the rows are reversed");
+  assert.deepEqual(await rows(), ["row:c", "row:b", "detail:about b", "row:a", "controls:reversedrop"]);
+  await click(".drop");
+  await until("document.querySelectorAll('#rows tr.row').length === 2", "the first row is dropped");
+  assert.deepEqual(await rows(), ["row:b", "detail:about b", "row:a", "controls:reversedrop"]);
+  // The table is a table: its rows are rows; beside them only the
+  // fragments' empty text nodes (the root's and the two rows').
+  assert.equal(await js("document.querySelector('table').rows.length"), 4);
+  assert.deepEqual(await js("[...document.querySelector('#rows').childNodes].filter((node) => node.nodeType !== 1).map((node) => node.textContent)"),
+    ["", "", ""]);
+  pass("fragments: a component renders two table rows and a <dt> with its <dd>; the rows move with their state, the root is a fragment");
+
   // ---- forms ----------------------------------------------------------------------
   await open("forms");
   assert.equal(await js("document.querySelector('.fruit').value"), "b");
@@ -429,7 +452,7 @@ try {
   // ---- a react.el of another release -------------------------------------------------
   await client.send("Page.navigate", { url: `${site.origin}/test/pages/protocol/${wasmacsQuery}` }, sessionId);
   await until("Boolean(window.startError)", "the page starts");
-  assert.match(await js("window.startError"), /old-react\.el speaks protocol 1 \(or none\), this elisp-react\.js 2: load the two from one release/);
+  assert.match(await js("window.startError"), /old-react\.el speaks protocol 1 \(or none\), this elisp-react\.js 3: load the two from one release/);
   pass("protocol: a react.el of another release than elisp-react.js is refused with a clear message");
 
   // ---- a strict Content-Security-Policy ------------------------------------------------

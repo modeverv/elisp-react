@@ -142,15 +142,30 @@ doc/experiment-notes.md  what the experiment shows so far (Japanese)
 
 An element is plain Lisp data: `"text"`, `(TAG PROPS CHILD...)` or `(TAG CHILD...)`. `PROPS` is a plist. Among the children `nil` is skipped and a list of elements (the value of `mapcar`) is spliced in.
 
+`(<> CHILD...)` is a fragment, JSX's `<>`: its children stand where it stands, without an element around them. A component can render two table rows, a `<dt>` with its `<dd>`, or several items of a grid, and keep state of its own. A fragment takes no props but `:key` (a keyed fragment moves with its children), and a component whose `:render` returns a list of elements renders a fragment of them:
+
+```elisp
+(react-define-component 'Row        ; a row that opens a second row below it
+  :initial-state (lambda (_props) (list :open nil))
+  :render
+  (lambda (self)
+    (jsx (<> (tr (:on-click (lambda (_event) (react-set-state self :open (not (react-state self :open)))))
+               (td (react-props self :name)))
+             (when (react-state self :open)
+               (jsx (tr (:class "detail") (td "more"))))))))
+```
+
+On the page a fragment is its children's nodes followed by an empty text node, which marks its place (also when it has no children).
+
 | | |
 |---|---|
-| `(react-define-component NAME :render F :initial-state F :did-mount F :did-update F :will-unmount F)` | Define a component. `:render` gets the instance and returns one element. An element `(NAME PROPS CHILD...)` renders it; its children arrive as the prop `:children`. `:did-update` gets the instance, the previous props and the previous state. |
+| `(react-define-component NAME :render F :initial-state F :did-mount F :did-update F :will-unmount F)` | Define a component. `:render` gets the instance and returns one element, or a list of them (a fragment). An element `(NAME PROPS CHILD...)` renders it; its children arrive as the prop `:children`. `:did-update` gets the instance, the previous props and the previous state. |
 | `:did-catch (lambda (self error) ...)` | An error boundary: a component below failed to render. That component renders nothing, and this one usually sets state to show something else. Without a boundary the error reaches the page as `react-render-error`, which names the component and those above it (`Card < Page < App`); what was waiting to render renders at the next event. |
 | `(react-effect SELF KEY DEPS F)` | In a render: run `F` after the render when `DEPS` (any data, compared with `equal`) changed since it last ran; a function that `F` returns cleans up before the next run and when the component is taken off. Stateful logic becomes an ordinary function that several components call. `:did-mount`, `:did-update` and `:will-unmount` also take a list of functions. |
 | `(react-props SELF [KEY])`, `(react-state SELF [KEY])` | The props or the state (plists) of an instance, or one value. |
 | `(react-set-state SELF :key VALUE ...)` | Install a new state plist with these keys changed and render again. Also takes one function from the old state to the changes. Several calls during one event cause one render. |
 | `(react-mount ELEMENT SELECTOR)` | Render into the page element the CSS selector names. |
-| `(jsx MARKUP)` | Build an element without backquote. `(TAG ...)` with an HTML or SVG tag, or `(Component ...)` with a Capitalized name, is markup; elements inside `(svg ...)` are created as SVG (inline charts and icons); prop values, children and everything else are evaluated as Lisp. Markup inside such Lisp needs `jsx` again. |
+| `(jsx MARKUP)` | Build an element without backquote. `(TAG ...)` with an HTML or SVG tag, `(Component ...)` with a Capitalized name, or `(<> ...)`, a fragment, is markup; elements inside `(svg ...)` are created as SVG (inline charts and icons); prop values, children and everything else are evaluated as Lisp. Markup inside such Lisp needs `jsx` again. |
 | `(react-provide KEY VALUE CHILD)`, `(react-context SELF KEY [DEFAULT])` | Hand `VALUE` to every component below `CHILD` under `KEY`, however deep, without props in between (the language, the signed-in user). A component reads it with `react-context` and renders again when it changes, even if it or a component above it is `:pure`. |
 | `(react-inspect [SELECTOR])` | The mounted components, parents first: `(:component :depth :props :state)` each, for a look from outside (elisp-studio evaluates it on request). |
 | `(react-force-update SELF)`, `(react-refresh [TYPE])` | Render one instance, or every mounted one (of a component `TYPE`), again, past `:should-update`: after data they read outside props and state changed. |

@@ -25,7 +25,7 @@
 const DEFAULT_WASMACS = "https://modeverv.github.io/wasmacs/";
 // The version of the operations and commands this host speaks with
 // react.el (`react--protocol').
-const PROTOCOL = 2;
+const PROTOCOL = 3;
 
 // Where the wasmacs eval service is published.  <meta name="elisp-react:wasmacs">
 // sets it for a page; ?wasmacs=... overrides it for local development and is
@@ -279,6 +279,9 @@ function createDom(dispatch, host) {
       listeners.delete(key);
     },
     insert(parentId, id, beforeId) { node(parentId).insertBefore(node(id), beforeId === null ? null : node(beforeId)); },
+    // In front of another node, wherever that is: a fragment's children,
+    // which have no element of their own.
+    before(id, beforeId) { node(beforeId).before(node(id)); },
     replace(oldId, id) {
       const old = node(oldId);
       old.replaceWith(node(id));
@@ -289,10 +292,11 @@ function createDom(dispatch, host) {
       gone.remove();
       forget(gone);
     },
-    mount(selector, id) {
+    // The root's nodes: one, or several for a fragment.
+    mount(selector, ...ids) {
       const container = document.querySelector(selector);
       if (!container) throw new Error(`elisp-react: nothing matches ${selector}`);
-      if (node(id).parentNode !== container) container.replaceChildren(node(id));
+      if (node(ids[0]).parentNode !== container) container.replaceChildren(...ids.map(node));
     },
     // :inner-html: HTML from elsewhere, cleaned; Lisp leaves the node's
     // children alone.
