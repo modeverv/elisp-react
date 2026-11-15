@@ -264,8 +264,46 @@ function createHost(reply, fetchFunction) {
               (error) => { if (pending.delete(request)) reply(request, false, error?.message || String(error)); });
       return () => controller.abort();
     },
+    // A connection answers again and again until it closes:
+    // {type: "open"}, {type: "message", data}, {type: "close", code, reason},
+    // {type: "error"}.
+    websocket(request, { url, protocols }) {
+      const socket = new WebSocket(new URL(url, location.href).href.replace(/^http/, "ws"), protocols || undefined);
+      sockets.set(request, socket);
+      const answer = (value) => { if (pending.has(request)) reply(request, true, value); };
+      socket.onopen = () => answer({ type: "open" });
+      socket.onmessage = (event) => answer({ type: "message", data: typeof event.data === "string" ? event.data : null });
+      socket.onerror = () => answer({ type: "error" });
+      socket.onclose = (event) => {
+        sockets.delete(request);
+        answer({ type: "close", code: event.code, reason: event.reason });
+        pending.delete(request);
+      };
+      return () => { sockets.delete(request); socket.close(); };
+    },
+    "event-source"(request, { url, events, withCredentials }) {
+      const source = new EventSource(url, { withCredentials: Boolean(withCredentials) });
+      const answer = (event) => {
+        if (pending.has(request)) reply(request, true, { type: event.type, data: event.data, id: event.lastEventId || null });
+      };
+      for (const name of ["message", ...(events || [])]) source.addEventListener(name, answer);
+      source.onopen = () => { if (pending.has(request)) reply(request, true, { type: "open" }); };
+      // The browser reconnects by itself; CLOSED means it gave up.
+      source.onerror = () => {
+        if (!pending.has(request)) return;
+        reply(request, true, { type: source.readyState === EventSource.CLOSED ? "close" : "error" });
+        if (source.readyState === EventSource.CLOSED) pending.delete(request);
+      };
+      return () => source.close();
+    },
   };
+  const sockets = new Map();   // request -> WebSocket
   const notices = {
+    "websocket-send"({ request, data }) {
+      const socket = sockets.get(request);
+      if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("the connection is not open");
+      socket.send(data);
+    },
     "storage-set"({ key, value }) { localStorage.setItem(storagePrefix() + key, value); },
     "storage-remove"({ key }) { localStorage.removeItem(storagePrefix() + key); },
   };

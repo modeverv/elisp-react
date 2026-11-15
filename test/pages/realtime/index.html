@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" data-elisp-react-manual>
+<meta charset="utf-8">
+<title>realtime</title>
+<div id="app">Loading Emacs…</div>
+<!-- SERVER is replaced by the origin of test/lib/realtime-server.mjs (?server=...). -->
+<script type="text/emacs-lisp" id="lisp">
+(react-define-component 'Realtime
+  :initial-state (lambda (_props) (list :log nil))
+  :did-mount
+  (lambda (self)
+    (let ((note (lambda (entry) (react-set-state self :log (append (react-state self :log) (list entry))))))
+      (react-event-source "SERVER/events" :events '("tick")
+        :on-message (lambda (event) (funcall note (format "sse %s %s %s" (plist-get event :type) (plist-get event :data) (plist-get event :id)))))
+      (let (socket)
+        (setq socket (react-websocket "SERVER/echo"
+                       :on-open (lambda () (funcall note "ws open") (react-websocket-send socket "hello"))
+                       :on-message (lambda (text) (funcall note (format "ws %s" text)) (react-websocket-send socket "bye"))
+                       :on-close (lambda (code reason) (funcall note (format "ws close %s %s" code reason))))))))
+  :render (lambda (self) (jsx (ul (mapcar (lambda (entry) (jsx (li entry))) (react-state self :log))))))
+(react-mount '(Realtime) "#app")
+</script>
+<script type="module">
+import { start } from "/js/elisp-react.js";
+const server = new URLSearchParams(location.search).get("server");
+const text = document.querySelector("#lisp").textContent.replaceAll("SERVER", server);
+window.elispReact = { ready: start({ sources: [{ name: "realtime.el", text }] }) };
+window.elispReact.ready.then((app) => Object.assign(window.elispReact, app));
+</script>
+</html>

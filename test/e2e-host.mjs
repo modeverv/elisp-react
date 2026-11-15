@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serveDirectory } from "../tools/static-server.mjs";
 import { CdpClient, chromePath, devToolsUrl, evaluate, pause, waitUntil } from "./lib/cdp.mjs";
+import { realtimeServer } from "./lib/realtime-server.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 const wasmacsDocs = process.env.WASMACS_DOCS || `${root}/../wasmacs/docs`;
@@ -84,6 +85,19 @@ try {
   assert.deepEqual(JSON.parse(await text(".echo")),
     { entries: [["title", "Holiday"], ["photos", "photo.txt 12"]], credentials: "include", cache: "no-store", method: "POST" });
   pass("fetch: :form sends fields and the chosen files as FormData; :credentials and :cache reach fetch");
+
+  // ---- realtime -----------------------------------------------------------------
+  const realtime = await realtimeServer();
+  servers.push(realtime.server);
+  await open("realtime", `&server=${encodeURIComponent(realtime.origin)}`);
+  await until("document.querySelectorAll('#app li').length >= 5 && /ws close/.test(document.querySelector('#app').textContent)", "the events and the echo arrive").catch(async (error) => {
+    console.log(await js("[document.querySelector('#app').innerHTML, document.querySelector('#elisp-react-error')?.textContent]"));
+    throw error;
+  });
+  const log = await js("[...document.querySelectorAll('#app li')].map((node) => node.textContent)");
+  assert.deepEqual(log.filter((line) => line.startsWith("sse")), ["sse message one nil", "sse tick two 9"]);
+  assert.deepEqual(log.filter((line) => line.startsWith("ws")), ["ws open", "ws echo: hello", "ws close 1000 done"]);
+  pass("realtime: server-sent events (named ones too), a WebSocket's messages and its closing reach Lisp");
 
   console.log("e2e host passed");
 } finally {
