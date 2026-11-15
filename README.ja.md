@@ -138,15 +138,16 @@ Lisp はページに応答している間しか動きません。待つことも
 | | |
 |---|---|
 | `(react-set-timeout MS F)`、`(react-set-interval MS F)`、`(react-clear-timer TIMER)` | あとで `F` を呼びます（1回、または繰り返し）。インターバルは `:did-mount` で始め、`:will-unmount` で止めます。 |
-| `(react-fetch URL :method :headers :body :then F :catch F)`、`(react-response-json RESPONSE)`、`(react-cancel REQUEST)` | ブラウザの `fetch` です。`:then` は `(:status 200 :ok t :text "...")` という plist を受け取ります（HTTP のエラーステータスのときも同じです）。応答そのものがなかったときは `:catch` がメッセージを受け取ります。`:body` の代わりに `:file (react-ref SELF NAME)` を渡すと、閲覧者がそのファイル入力で選んだファイルが本文になります。ファイルは、大きさにかかわらず、Lisp を通らずにページからサーバーへそのまま送られます。 |
+| `(react-fetch URL :method :headers :body :then F :catch F)`、`(react-response-json RESPONSE)`、`(react-cancel REQUEST)` | ブラウザの `fetch` です。`:then` は `(:status 200 :ok t :url "..." :redirected nil :headers (:content-type "..." ...) :text "...")` という plist を受け取ります（HTTP のエラーステータスのときも同じです）。応答そのものがなかったときは `:catch` がメッセージを受け取ります。`:body` の代わりに `:file (react-ref SELF NAME)` を渡すと、閲覧者がそのファイル入力で選んだファイルが本文になります。ファイルは、大きさにかかわらず、Lisp を通らずにページからサーバーへそのまま送られます。`:form (list 名前 値 ...)` は `multipart/form-data` で送ります。値は文字列か、ファイル入力の ref で、ref ならそこで選ばれたファイルを送ります。`:credentials`、`:cache`、`:redirect`、`:mode`、`:keepalive`、`:priority`、`:referrerPolicy` はそのまま `fetch` に渡ります。 |
+| `(react-response-header RESPONSE NAME)`、`:as 'base64` と `(react-response-bytes RESPONSE)` | 応答のヘッダー（大文字小文字は問いません）。`:as 'base64` を付けると本文は `:text` ではなく `:base64` で届き、`react-response-bytes` がそれを unibyte の文字列にします。画像、アーカイブなど、どんなバイト列でも扱えます（付けないと本文は UTF-8 の文字列として読まれ、UTF-8 でないバイトは失われます）。 |
 | `(react-storage-get KEY [DEFAULT])`、`(react-storage-set KEY VALUE)`、`(react-storage-remove KEY)` | ページの `localStorage` です。印字できる Lisp データなら何でも保存できます。読み出しは即座に返ります。 |
 | 要素の `:ref "name"`、`(react-focus SELF "name")`、`(react-invoke SELF "name" METHOD)` | コンポーネントが描画した要素の DOM ノードに対して `focus`、`blur`、`select`、`click`、`scrollIntoView` を呼びます。その描画の DOM 変更のあとに実行されます（`:did-update` か `:did-mount` の中で使います）。 |
 
 ログインについて、ページ側で決まっていることは次のとおりです（2026-11-15 に、Chrome から elisp-studio のプロジェクトサーバーに対して、セッションの Cookie と Bearer トークンを1つのページで試しました）。
 
-- **Cookie は何もしなくても届きます。** `react-fetch` は、ブラウザの `fetch` を既定の設定のまま使います。ページ自身のサーバーへのリクエストには、そのサーバーの Cookie が付き、応答で渡された Cookie も保存されます。`HttpOnly` のセッション Cookie は、Lisp からは見えません。別のオリジンへのリクエストには Cookie が付かず、相手のサーバーの CORS の設定に従います。
+- **Cookie は何もしなくても届きます。** `react-fetch` は、ブラウザの `fetch` を既定の設定のまま使います。ページ自身のサーバーへのリクエストには、そのサーバーの Cookie が付き、応答で渡された Cookie も保存されます。`HttpOnly` のセッション Cookie は、Lisp からは見えません。別のオリジンへのリクエストには、`:credentials "include"` を付けない限り Cookie が付かず、相手のサーバーの CORS の設定に従います。
 - **トークンはヘッダーで送ります。** `:headers (:authorization "Bearer …")` で送れます（たとえば JWT）。その場合、トークンはページが持っておく必要があります。コンポーネントの state に置くと、再読み込みで消えます。`react-storage-set` に置くと `localStorage` に残り、ページのすべてのスクリプトから読めます。安全なのは Cookie のほうです。
-- **応答として届くのは、ステータスと本文です。** Lisp は応答のヘッダーを受け取りません。トークンを渡すサーバーは、本文に入れます。
+- **応答として届くのは、ステータスとヘッダーと本文です。** `react-response-header` でヘッダー（`Link`、`Retry-After`、`ETag`）を読めます。CORS がページに見せないヘッダーは、Lisp にも見えません。
 - **検証はサーバーの仕事です。** ページの Emacs にある暗号の機能は `secure-hash` だけです（[wasmacs の doc/eval-service.md](https://github.com/modeverv/wasmacs/blob/master/doc/eval-service.md#hashes-random-bytes-sockets)）。トークンの中身を読むことはできます（`base64-decode-string`、`json-parse-string`）。しかし、ページの中で検証しても、閲覧者はそれを書き換えられます。
 
 同じ非同期処理を、上から下へ順に書くこともできます。`react-async` は本体を最初の `react-await` まで実行してページに戻り、ページから答えが来たら続きを実行します（Emacs の `generator.el` の上に作ってあります）。
@@ -164,7 +165,7 @@ Lisp はページに応答している間しか動きません。待つことも
 | | |
 |---|---|
 | `(react-async BODY...)`、`(react-await AWAITABLE)` | ループや条件分岐の中でも await できます。処理が失敗すると、その await の位置で `react-async-error` が発生します。await のあとでは state が変わっている可能性があるので、読み直してください。 |
-| `(react-sleep MS)`、`(react-fetch-async URL :method :headers :body)` | await できるものです。`(RESOLVE REJECT)` を受け取り、どちらかを1回呼ぶ関数なら何でも await できます。 |
+| `(react-sleep MS)`、`(react-fetch-async URL OPTIONS...)`（`react-fetch` の引数から `:then` と `:catch` を除いたもの） | await できるものです。`(RESOLVE REJECT)` を受け取り、どちらかを1回呼ぶ関数なら何でも await できます。 |
 
 既定では、親が再描画されると子も必ず再描画されます。コンポーネントはこれを断ることができます。
 

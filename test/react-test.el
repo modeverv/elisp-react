@@ -505,6 +505,34 @@
         (react-host-reply request t '(:status 200 :ok t :text "{}")))
       (should (equal (car log) "Failed to fetch")))))
 
+(ert-deftest react-test-fetch-options ()
+  "Forms, bytes and fetch's own options reach the host; headers come back."
+  (react-test--fresh
+    (let (instance response)
+      (react-define-component 'react-test-uploader
+        :render (lambda (self) (setq instance self) '(form () (input (:ref "photos" :type "file")))))
+      (react-mount '(react-test-uploader) "#app")
+      (react-flush)
+      (let ((request (react-fetch "/upload" :method "POST"
+                                  :form (list "title" "Holiday" "photos" (react-ref instance "photos") "empty" nil)
+                                  :credentials "include" :cache 'no-store :keepalive t :as 'base64
+                                  :then (lambda (value) (setq response value)))))
+        (let ((ops (react-test--ops)))
+          (should (equal ops
+                         `(("call" ,request "fetch"
+                            (:url "/upload" :method "POST" :headers nil :body nil
+                                  :form [["title" "Holiday"] ["photos" (:file 2)] ["empty" ""]]
+                                  :credentials "include" :cache "no-store" :keepalive t :as "base64")))))
+          ;; All of it is JSON for the host.
+          (should (json-serialize (nth 3 (car ops)) :null-object nil)))
+        (react-host-reply request t '(:status 200 :ok t :url "http://x/upload" :redirected nil
+                                      :headers (:content-type "application/octet-stream" :link "<next>")
+                                      :base64 "AAH/")))
+      (should (equal (react-response-bytes response) (unibyte-string 0 1 255)))
+      (should (equal (react-response-header response "Content-Type") "application/octet-stream"))
+      (should (equal (react-response-header response "link") "<next>"))
+      (should-not (react-response-header response "etag")))))
+
 (ert-deftest react-test-storage ()
   "localStorage holds Lisp data; only changes are sent to the page."
   (react-test--fresh

@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,6 +67,23 @@ try {
   assert.equal(await text(".count"), "1");
   assert.deepEqual(await js("errors"), ["timeout"]);
   pass("watchdog: Lisp that does not answer within the timeout stops Emacs and is reported once");
+
+  // ---- fetch ------------------------------------------------------------------
+  await open("fetch");
+  await click(".bytes");
+  await until("document.querySelector('.bytes-result').textContent !== ''", "the bytes arrive");
+  assert.equal(await text(".bytes-result"), "256 0 255 nil application/octet-stream");
+  pass("fetch: a binary body reaches Lisp intact as a unibyte string (:as 'base64), with the response's headers");
+  const upload = join(workDir, "photo.txt");
+  await writeFile(upload, "twelve bytes");
+  const { root: documentNode } = await client.send("DOM.getDocument", {}, sessionId);
+  const { nodeId } = await client.send("DOM.querySelector", { nodeId: documentNode.nodeId, selector: ".photos" }, sessionId);
+  await client.send("DOM.setFileInputFiles", { nodeId, files: [upload] }, sessionId);
+  await js("document.querySelector('form.upload').requestSubmit(); true");
+  await until("document.querySelector('.echo').textContent !== ''", "the form is sent");
+  assert.deepEqual(JSON.parse(await text(".echo")),
+    { entries: [["title", "Holiday"], ["photos", "photo.txt 12"]], credentials: "include", cache: "no-store", method: "POST" });
+  pass("fetch: :form sends fields and the chosen files as FormData; :credentials and :cache reach fetch");
 
   console.log("e2e host passed");
 } finally {
