@@ -399,6 +399,23 @@ try {
   await until("document.querySelector('.closed').textContent === '2'", "Lisp closes it");
   pass("dialog: a modal <dialog> opened from Lisp (or by command=show-modal) takes the focus, closes on Escape, tells Lisp, and gives the focus back");
 
+  // ---- timing ---------------------------------------------------------------------
+  await open("batch");
+  await click(".go");
+  await until("document.querySelector('.n').textContent === '30'", "the timers are answered");
+  const timing = await js(`(() => {
+    const requests = performance.getEntriesByName("elisp-react:request");
+    const files = performance.getEntriesByType("measure").filter((entry) => entry.name.startsWith("elisp-react:lisp:"));
+    const start = performance.getEntriesByName("elisp-react:start")[0];
+    return { requests: requests.length, click: requests.find((entry) => entry.detail.what === "the click event")?.detail,
+             files: files.map((entry) => entry.detail.from), start: Boolean(start && start.duration > 0) };
+  })()`);
+  assert.equal(timing.requests >= 2, true);
+  assert.equal(timing.click.ops > 0 && timing.click.roundTripMs >= 0 && timing.click.applyMs >= 0, true);
+  assert.equal(timing.files.length, 2);
+  assert.equal(timing.start, true);
+  pass(`timing: requests, files and the start are User Timing measures (a click: ${timing.click.ops} operations, ${timing.click.roundTripMs.toFixed(1)} ms to Lisp and back, ${timing.click.applyMs.toFixed(2)} ms to apply)`);
+
   console.log("e2e host passed");
 } finally {
   client?.close();

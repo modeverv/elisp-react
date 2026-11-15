@@ -89,6 +89,8 @@ If `elisp-react.js` itself cannot be loaded (no network, a blocked CDN), nothing
 </script>
 ```
 
+**Timing.** The host records User Timing measures that DevTools' Performance panel shows and a `PerformanceObserver` can collect: `elisp-react:request` for every request to Lisp (`detail`: what it was, the number of DOM operations that came back, the round trip, the time to apply them), `elisp-react:lisp:FILE` for each file loaded at the start (`detail.from`: compiled ahead, kept, compiled), and `elisp-react:start`.
+
 ## Emacs on both ends
 
 `examples/server/` is an application without any JavaScript or build step of its own: a native Emacs process is the web server and keeps the data, the Emacs in the browser draws the page, and they exchange printed Lisp data instead of JSON.
