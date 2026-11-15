@@ -966,6 +966,19 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
   hooks.progress({ phase: "lisp", url: new URL(library, location.href).href, from: first.from });
   const compileLogs = [];
   let previous = first.hash;
+  // Every file of the page is on load-path under its own name before any
+  // is loaded: (require 'helper) finds helper.el wherever it stands in the
+  // page.
+  const libraries = sources
+    .map((source) => ({ name: (new URL(source.name, location.href).pathname.split("/").pop() || ""), text: source.text }))
+    .filter((library) => /^[\w.+-]+\.el$/.test(library.name));
+  if (libraries.length) {
+    await emacs.eval(`(let ((coding-system-for-write 'utf-8-unix))
+      (make-directory "/tmp/elisp-react/lib/" t)
+      ${libraries.map((library) => `(with-temp-file ${lispString(`/tmp/elisp-react/lib/${library.name}`)} (insert ${lispString(library.text)}))`).join("\n      ")}
+      (add-to-list 'load-path "/tmp/elisp-react/lib/")
+      nil)`);
+  }
   await emacs.call("react--storage-load", storedEntries());
   await emacs.call("react--location-set", address.describe());
   await emacs.call("react--locale-set", {
