@@ -142,7 +142,8 @@ Lisp はページに応答している間しか動きません。待つことも
 | `(react-response-header RESPONSE NAME)`、`:as 'base64` と `(react-response-bytes RESPONSE)` | 応答のヘッダー（大文字小文字は問いません）。`:as 'base64` を付けると本文は `:text` ではなく `:base64` で届き、`react-response-bytes` がそれを unibyte の文字列にします。画像、アーカイブなど、どんなバイト列でも扱えます（付けないと本文は UTF-8 の文字列として読まれ、UTF-8 でないバイトは失われます）。 |
 | `(react-websocket URL :on-open F :on-message F :on-close F :on-error F)`、`(react-websocket-send CONNECTION TEXT)` | WebSocket（`ws:`、`wss:`、またはこのサイトのパス）。`:on-message` は届いたテキストのメッセージを1つずつ、`:on-close` はコードと理由を受け取ります。`react-cancel` で閉じます（`:will-unmount` で）。 |
 | `(react-event-source URL :on-message F :events NAMES :on-open F :on-error F :on-close F)` | サーバー送信イベント。`:on-message` は `(:type "message" :data "..." :id ...)` を受け取り、`:events` に並べた名前付きのイベントも同じように受け取ります。切れてもブラウザがつなぎ直し、`:on-close` はブラウザがあきらめたことを表します。`react-cancel` で閉じます。 |
-| `(react-storage-get KEY [DEFAULT])`、`(react-storage-set KEY VALUE)`、`(react-storage-remove KEY)` | ページの `localStorage` です。印字できる Lisp データなら何でも保存できます。読み出しは即座に返ります。 |
+| `(react-storage-get KEY [DEFAULT])`、`(react-storage-set KEY VALUE)`、`(react-storage-remove KEY)` | ページの `localStorage` です。印字できる Lisp データなら何でも保存できます。読み出しは即座に返ります（起動時にホストが Lisp に写しを渡します）。`react-storage-set` は値を置き換えます。同じページの別のタブがその間に保存したものも置き換えます。 |
+| `(react-storage-watch KEY F)`、`(react-storage-unwatch HANDLE)` | 同じページの別のタブが `KEY` を変えたとき、Lisp の写しは新しい値になり、`F` がそれを受け取ります（消されたときは nil）。タブ間でリストを共有するなら、書く前にマージするか、描き直します。 |
 | 要素の `:ref "name"`、`(react-focus SELF "name")`、`(react-invoke SELF "name" METHOD)` | コンポーネントが描画した要素の DOM ノードに対して `focus`、`blur`、`select`、`click`、`scrollIntoView` を呼びます。その描画の DOM 変更のあとに実行されます（`:did-update` か `:did-mount` の中で使います）。 |
 
 ログインについて、ページ側で決まっていることは次のとおりです（2026-11-15 に、Chrome から elisp-studio のプロジェクトサーバーに対して、セッションの Cookie と Bearer トークンを1つのページで試しました）。
