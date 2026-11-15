@@ -146,6 +146,26 @@ Lisp runs only while it answers the page: it cannot wait and cannot reach into t
 | `(react-storage-watch KEY F)`, `(react-storage-unwatch HANDLE)` | Another tab of the page changed `KEY`: Lisp's copy has the new value, and `F` gets it (nil when it was removed). Merge before writing when tabs share a list, or render again. |
 | `:ref "name"` on an element, `(react-focus SELF "name")`, `(react-invoke SELF "name" METHOD)` | Call `focus`, `blur`, `select`, `click` or `scrollIntoView` on the DOM node of an element the component rendered, after the render's DOM changes (use it in `:did-update` or `:did-mount`). |
 
+What the host cannot do, the page's own script can, and the two can talk:
+
+```html
+<script>
+  // Commands Lisp can call: (react-host-call "width" ID FUNCTION) and (react-host-tell "set-title" TEXT).
+  window.elispReactCommands = {
+    width(id, { reply, node }) { reply(node(id).getBoundingClientRect().width); },
+    "set-title"(text) { document.title = text; },
+  };
+  // A Lisp function the script calls; the page shows what it changed when the promise resolves.
+  document.addEventListener("elisp-react:ready", () => window.elispReact.send("my-app-resized", innerWidth));
+</script>
+```
+
+| | |
+|---|---|
+| `window.elispReactCommands[NAME] = (ARGUMENT, { reply, fail, node }) => CANCEL` | A command of the page. `reply(VALUE)` answers Lisp (again and again if Lisp kept the request), `fail(MESSAGE)` answers with a failure, `node(ID)` is the DOM node Lisp knows by `ID`; a returned function is called by `react-cancel`. A notice gets `(ARGUMENT, { node })`. |
+| `(react-host-call NAME ARGUMENT FUNCTION [KEEP])`, `(react-host-tell NAME ARGUMENT)`, `(react-node-id (react-ref SELF "name"))` | Call such a command (`FUNCTION` gets `OK` and the value), or tell it without an answer. `react-node-id` names a node for `node(ID)`. |
+| `window.elispReact.send(NAME, ...ARGS)` | Call the Lisp function `NAME` with `ARGS` (JSON data) and render what it changed; resolves when the page is updated. |
+
 Signing in, as far as the page is concerned (tried on 2026-11-15 from Chrome against elisp-studio's project server, a session cookie and a bearer token in one page):
 
 - **Cookies need nothing.** `react-fetch` is the browser's `fetch` with its defaults: a request to the page's own server carries that server's cookies and takes new ones from the answer. A session cookie that is `HttpOnly` never shows up in Lisp. A request to another origin carries no cookies unless it says `:credentials "include"`, and is subject to that server's CORS rules.
