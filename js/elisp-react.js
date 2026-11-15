@@ -759,6 +759,27 @@ async function loadLisp(emacs, version, name, text, { previous = "", cache = tru
   }
 }
 
+// Compiled code of a file that this page loaded before and loads no more
+// (renamed, removed) is forgotten, unless another page still loads it:
+// each page keeps the list of the files it loaded under
+// elisp-react:compiled-by:PATH.
+function forgetUnloaded(cache, names) {
+  try {
+    const keep = cache === "session" ? sessionStorage : cache ? localStorage : null;
+    if (!keep) return;
+    const own = `elisp-react:compiled-by:${pagePath()}`;
+    const before = JSON.parse(keep.getItem(own) || "[]");
+    const others = new Set();
+    for (const key of Object.keys(keep)) {
+      if (key.startsWith("elisp-react:compiled-by:") && key !== own) for (const name of JSON.parse(keep.getItem(key) || "[]")) others.add(name);
+    }
+    for (const name of before) {
+      if (!names.includes(name) && !others.has(name)) keep.removeItem(`elisp-react:compiled:${name}`);
+    }
+    keep.setItem(own, JSON.stringify(names));
+  } catch (_) { /* no storage, or a broken list: nothing to forget */ }
+}
+
 // ---- start --------------------------------------------------------------------
 
 // How long Lisp may take to answer an event or a reply before the page
@@ -1010,6 +1031,7 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
     previous = loaded.hash;
     compileLogs.push({ name: source.name, file: loaded.file, log: loaded.log, from: loaded.from });
   }
+  forgetUnloaded(cache, [new URL(library, location.href).href, ...sources.map((source) => source.name)]);
   dom.apply(await emacs.call("react-flush"));
   measure("elisp-react:start", startedAt, { bootMs: info.bootMs, cached: info.cached });
   return {

@@ -172,7 +172,7 @@ Lisp runs only while it answers the page: it cannot wait and cannot reach into t
 | `(react-url-query SEARCH)` | A query string as an alist, escapes read as UTF-8: `(react-url-query (react-location :search))`. |
 | `(react-websocket URL :on-open F :on-message F :on-close F :on-error F)`, `(react-websocket-send CONNECTION TEXT)` | A WebSocket (`ws:`, `wss:`, or a path of this site). `:on-message` gets each text message, `:on-close` the code and the reason. `react-cancel` closes it: do that in `:will-unmount`. |
 | `(react-event-source URL :on-message F :events NAMES :on-open F :on-error F :on-close F)` | Server-sent events. `:on-message` gets `(:type "message" :data "..." :id ...)`, also for the named events listed in `:events`. The browser reconnects by itself; `:on-close` means it gave up. `react-cancel` closes it. |
-| `(react-storage-get KEY [DEFAULT])`, `(react-storage-set KEY VALUE)`, `(react-storage-remove KEY)` | The page's `localStorage`, holding any printable Lisp data. Reading is immediate: the host hands Lisp a copy at the start. `react-storage-set` replaces the value, also what another tab of the page stored meanwhile. |
+| `(react-storage-get KEY [DEFAULT])`, `(react-storage-set KEY VALUE [MAX-AGE])`, `(react-storage-remove KEY)` | The page's `localStorage`, holding any printable Lisp data. Reading is immediate: the host hands Lisp a copy at the start. `react-storage-set` replaces the value, also what another tab of the page stored meanwhile. |
 | `(react-storage-watch KEY F)`, `(react-storage-unwatch HANDLE)` | Another tab of the page changed `KEY`: Lisp's copy has the new value, and `F` gets it (nil when it was removed). Merge before writing when tabs share a list, or render again. |
 | `:ref "name"` on an element, `(react-focus SELF "name")`, `(react-invoke SELF "name" METHOD ARGS...)` | Call a method on the DOM node of an element the component rendered, after the render's DOM changes (use it in `:did-update` or `:did-mount`): `focus`, `blur`, `select`, `click`, `scrollIntoView`, `scrollTo`, `scrollBy`, `setSelectionRange`, `showModal`, `show`, `close`, `requestSubmit`, `reset`, `reportValidity`, `setCustomValidity`, `play`, `pause`, `load`, `requestFullscreen`, `showPicker`. Arguments are JSON data: `(react-invoke self "list" "scrollTo" '(:top 0))`. |
 | `(react-make-ref SELF "name")`, `(react-root SELECTOR)` | A ref that a component hands down to put on an element a component below renders: `(input (:ref (react-props self :input-ref)))` makes it the parent's ref `"name"`. The component instance `react-mount` rendered into `SELECTOR`, for code outside the components. |
@@ -199,6 +199,15 @@ What the host cannot do, the page's own script can, and the two can talk:
 | `window.elispReact.send(NAME, ...ARGS)` | Call the Lisp function `NAME` with `ARGS` (JSON data) and render what it changed; resolves when the page is updated. |
 
 **An origin is one trust.** `localStorage`, the compiled code kept in it and Emacs in Cache Storage belong to the page's origin, and so does every page of it: any page of an origin can read another's stored values (an API key, a token), change the code another one loads next time, or simply open it in a frame and script it. The storage name and `cache: "session"` keep honest applications apart, not hostile ones. An application that keeps secrets needs an origin of its own, without pages it does not trust; on a shared host such as `USER.github.io` every repository's Pages share one, and so does elisp-studio's in-page studio, which runs whatever project its user opens. A manifest of compiled code (`tools/compile.mjs`) is fetched from the site, not kept in the origin's storage.
+
+**What the stack keeps and whom it asks**, for a page's privacy notice:
+
+| Where | What | How long |
+|---|---|---|
+| `localStorage` `elisp-react:compiled:URL` (or `sessionStorage`, `cache: "session"`) | The compiled code of `react.el` and of each Lisp file of the page (a few hundred KB) | Until the file changes; removed when no page loads the file any more (`elisp-react:compiled-by:PAGE` lists what each page loaded) |
+| `localStorage` `elisp-react:NAME:KEY` | What the application stores with `react-storage-set` | Until it removes it, or `MAX-AGE` seconds (`(react-storage-set KEY VALUE MAX-AGE)`) |
+| Cache Storage `wasmacs-eval-PLACE-ID` | Emacs (about 5 MB compressed) and the Lisp files it read | Until the next build of the eval service |
+| Requests | The page's own files; `react.el` and `elisp-react.js` from where the page loads them; the wasmacs site (its build id at every start, Emacs's files the first time) | Nothing else, unless the application fetches it |
 
 **A Content-Security-Policy.** What a page has to allow depends on where Emacs comes from. With wasmacs on another origin (the default, `https://modeverv.github.io/wasmacs/`), this policy runs a page with no violation (tested in `test/e2e-host.mjs`):
 

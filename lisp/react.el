@@ -1873,10 +1873,26 @@ render again."
 ;; is immediate.  Values are any printable Lisp data.
 
 (defun react--storage-load (entries)
-  "ENTRIES is a vector of [KEY TEXT]: what the page has stored."
+  "ENTRIES is a vector of [KEY TEXT]: what the page has stored.
+Values whose time is up (`react-storage-set' with MAX-AGE) are removed."
   (clrhash react--storage)
   (mapc (lambda (entry) (puthash (aref entry 0) (aref entry 1) react--storage)) entries)
+  (maphash (lambda (key _text)
+             (when (eq (react--storage-read key) 'react--expired)
+               (react-storage-remove key)))
+           (copy-hash-table react--storage))
   nil)
+
+(defun react--storage-read (key)
+  "The value under KEY, `react--expired' when its time is up, or
+`react--absent'."
+  (let ((text (gethash key react--storage)))
+    (if (not text)
+        'react--absent
+      (let ((value (condition-case nil (car (read-from-string text)) (error 'react--absent))))
+        (if (eq (car-safe value) 'react--expiring)
+            (if (< (nth 1 value) (float-time)) 'react--expired (nth 2 value))
+          value)))))
 
 (defvar react--storage-watchers (make-hash-table :test #'equal)
   "Key -> functions to call when another tab changes the stored value.")
@@ -1904,18 +1920,20 @@ the other tab stored, or to render again.  Returns a handle for
   nil)
 
 (defun react-storage-get (key &optional default)
-  "The Lisp value stored under KEY in the page's localStorage, or DEFAULT."
-  (let ((text (gethash key react--storage)))
-    (if text
-        (condition-case nil (car (read-from-string text)) (error default))
-      default)))
+  "The Lisp value stored under KEY in the page's localStorage, or DEFAULT
+\(also when it was stored with a MAX-AGE that has passed)."
+  (let ((value (react--storage-read key)))
+    (if (memq value '(react--absent react--expired)) default value)))
 
-(defun react-storage-set (key value)
+(defun react-storage-set (key value &optional max-age)
   "Store the Lisp VALUE under KEY in the page's localStorage.
 VALUE replaces what is there, also what another tab of the page stored
 since this one read it: watch the key (`react-storage-watch') and merge
-before writing when tabs share a list."
-  (let ((text (let ((print-length nil) (print-level nil)) (prin1-to-string value))))
+before writing when tabs share a list.  With MAX-AGE (seconds) the value
+is forgotten that long after: a later start removes it, and
+`react-storage-get' no longer returns it."
+  (let ((text (let ((print-length nil) (print-level nil))
+                (prin1-to-string (if max-age (list 'react--expiring (+ (float-time) max-age) value) value)))))
     (unless (equal text (gethash key react--storage))
       (puthash key text react--storage)
       (react--emit "tell" "storage-set" (list :key key :value text))))

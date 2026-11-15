@@ -172,7 +172,7 @@ Lisp はページに応答している間しか動きません。待つことも
 | `(react-url-query SEARCH)` | クエリ文字列を alist にします。エスケープは UTF-8 として読みます: `(react-url-query (react-location :search))`。 |
 | `(react-websocket URL :on-open F :on-message F :on-close F :on-error F)`、`(react-websocket-send CONNECTION TEXT)` | WebSocket（`ws:`、`wss:`、またはこのサイトのパス）。`:on-message` は届いたテキストのメッセージを1つずつ、`:on-close` はコードと理由を受け取ります。`react-cancel` で閉じます（`:will-unmount` で）。 |
 | `(react-event-source URL :on-message F :events NAMES :on-open F :on-error F :on-close F)` | サーバー送信イベント。`:on-message` は `(:type "message" :data "..." :id ...)` を受け取り、`:events` に並べた名前付きのイベントも同じように受け取ります。切れてもブラウザがつなぎ直し、`:on-close` はブラウザがあきらめたことを表します。`react-cancel` で閉じます。 |
-| `(react-storage-get KEY [DEFAULT])`、`(react-storage-set KEY VALUE)`、`(react-storage-remove KEY)` | ページの `localStorage` です。印字できる Lisp データなら何でも保存できます。読み出しは即座に返ります（起動時にホストが Lisp に写しを渡します）。`react-storage-set` は値を置き換えます。同じページの別のタブがその間に保存したものも置き換えます。 |
+| `(react-storage-get KEY [DEFAULT])`、`(react-storage-set KEY VALUE [MAX-AGE])`、`(react-storage-remove KEY)` | ページの `localStorage` です。印字できる Lisp データなら何でも保存できます。読み出しは即座に返ります（起動時にホストが Lisp に写しを渡します）。`react-storage-set` は値を置き換えます。同じページの別のタブがその間に保存したものも置き換えます。 |
 | `(react-storage-watch KEY F)`、`(react-storage-unwatch HANDLE)` | 同じページの別のタブが `KEY` を変えたとき、Lisp の写しは新しい値になり、`F` がそれを受け取ります（消されたときは nil）。タブ間でリストを共有するなら、書く前にマージするか、描き直します。 |
 | 要素の `:ref "name"`、`(react-focus SELF "name")`、`(react-invoke SELF "name" METHOD ARGS...)` | コンポーネントが描画した要素の DOM ノードのメソッドを呼びます。その描画の DOM 変更のあとに実行されます（`:did-update` か `:did-mount` の中で使います）。呼べるのは `focus`、`blur`、`select`、`click`、`scrollIntoView`、`scrollTo`、`scrollBy`、`setSelectionRange`、`showModal`、`show`、`close`、`requestSubmit`、`reset`、`reportValidity`、`setCustomValidity`、`play`、`pause`、`load`、`requestFullscreen`、`showPicker` です。引数は JSON のデータです: `(react-invoke self "list" "scrollTo" '(:top 0))`。 |
 | `(react-make-ref SELF "name")`、`(react-root SELECTOR)` | 部品が下の部品に渡し、下の部品が描く要素に付けてもらう ref です: `(input (:ref (react-props self :input-ref)))` で、その要素は親の ref `"name"` になります。`react-root` は `react-mount` が `SELECTOR` に描いた部品のインスタンスを返します（部品の外のコードのため）。 |
@@ -199,6 +199,15 @@ Lisp はページに応答している間しか動きません。待つことも
 | `window.elispReact.send(NAME, ...ARGS)` | Lisp の関数 `NAME` を `ARGS`（JSON のデータ）で呼び、変わったところを描きます。ページが更新されたときに解決します。 |
 
 **オリジンは1つの信頼の単位です。** `localStorage`、そこに保存したコンパイル結果、Cache Storage の Emacs は、ページのオリジンのものです。同じオリジンのページなら、どれでも別のページの保存値（API キー、トークン）を読め、別のページが次に読み込むコードを書き換えられ、フレームで開いて操作することもできます。保存の名前と `cache: "session"` は、まっとうなアプリケーション同士を分けるもので、悪意のあるページからは守りません。秘密を持つアプリケーションには、信頼できないページの無い、自分だけのオリジンが要ります。`USER.github.io` のような共有のホストでは、すべてのリポジトリの Pages が1つのオリジンを共有し、利用者が開いたどんなプロジェクトでも動かす elisp-studio のページ内の studio も同じです。コンパイル結果のマニフェスト（`tools/compile.mjs`）は、オリジンの保存領域ではなくサイトから取得します。
+
+**このスタックが保存するものと、問い合わせる先**（ページのプライバシーの説明のために）:
+
+| 場所 | 中身 | 期間 |
+|---|---|---|
+| `localStorage` の `elisp-react:compiled:URL`（`cache: "session"` なら `sessionStorage`） | `react.el` とページの各 Lisp ファイルのコンパイル結果（数百 KB） | ファイルが変わるまで。どのページもそのファイルを読まなくなったら消えます（`elisp-react:compiled-by:PAGE` に各ページが読んだものの一覧があります） |
+| `localStorage` の `elisp-react:NAME:KEY` | アプリケーションが `react-storage-set` で保存したもの | アプリケーションが消すまで。または `MAX-AGE` 秒（`(react-storage-set KEY VALUE MAX-AGE)`） |
+| Cache Storage の `wasmacs-eval-PLACE-ID` | Emacs（圧縮して約 5 MB）と、Emacs が読んだ Lisp ファイル | eval service の次のビルドまで |
+| リクエスト | ページ自身のファイル。ページが読む場所からの `react.el` と `elisp-react.js`。wasmacs のサイト（起動のたびにビルド id、初回は Emacs のファイル） | アプリケーションが取得しない限り、ほかにはありません |
 
 **Content-Security-Policy。** ページが許す必要のあるものは、Emacs をどこから読むかで変わります。wasmacs が別のオリジンにあるとき（既定の `https://modeverv.github.io/wasmacs/`）、次のポリシーでページは違反無しに動きます（`test/e2e-host.mjs` で確かめています）。
 
