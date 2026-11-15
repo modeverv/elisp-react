@@ -60,6 +60,8 @@ The plain-list form remains the foundation and has no naming rule; `jsx` is a co
 
 Text and host nodes carry a `dom-id`, a number Lisp chooses. That number is all Lisp knows of the DOM.
 
+`react-render-to-string` mounts an element in tables of its own (let-bound over the global ones), takes its HTML and drops everything: no operations reach a page, no `:did-mount` runs, nothing stays mounted. `react--html` escapes text and attribute values and writes void elements without an end tag, so the text is HTML a server can send.
+
 ## Reconciliation
 
 `react--update MOUNTED ELEMENT` makes a mounted node show a new element:
