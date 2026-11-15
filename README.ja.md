@@ -159,7 +159,7 @@ render 関数の中の `lambda` は描画のたびに新しいオブジェクト
 
 増減や並べ替えのあるリストの子には `:key` を付けます（`(li (:key id) ...)`）。前回と同じ key の子は同じ子として扱われ、リスト内の位置が変わっても、DOM ノードと、その中のコンポーネントの state を保ちます。動かすノードは最小限です。key のない子は位置で対応づけます。
 
-DOM 要素の props: `:on-click`、`:on-input`、`:on-submit` などはイベントリスナーです（関数は `:type :value :checked :key` を持つ plist を受け取ります。ファイル入力では、`(:name :size :type)` のベクタである `:files` も付きます）。`:value` と `:checked` は DOM プロパティなので、入力欄は controlled になります。`:style` は文字列か plist です。それ以外は属性になります（`nil` で削除、`t` で空の属性）。
+DOM 要素の props: `:on-click`、`:on-input`、`:on-submit` などはイベントリスナーです（関数は `:type :value :checked :key` を持つ plist を受け取ります。ファイル入力では、`(:name :size :type)` のベクタである `:files` も付きます）。`:value` と `:checked` は DOM プロパティなので、入力欄は controlled になります。`:style` は文字列か plist です。それ以外は属性になります（`nil` で削除、`t` で空の属性）。 ホストはインラインの `on*` 属性と `srcdoc` を省き、URL 属性のスクリプト URL を削除して描画を続けます。イベントには Lisp の `:on-...` コールバックを使ってください。ページ作者の Lisp と意図して作る script 要素は信頼するコードです（[DOM の境界](doc/design.md#operations)）。
 
 ## 動いているページを書き換える
 

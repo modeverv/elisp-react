@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serveDirectory } from "../tools/static-server.mjs";
+import { checkDomSecurity } from "./lib/dom-security.mjs";
 import { CdpClient, chromePath, devToolsUrl, evaluate, pause, waitUntil } from "./lib/cdp.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
@@ -287,6 +288,9 @@ try {
   await click(".load");
   await until("document.querySelectorAll('.quote-list li').length === 3", "loading again works");
   pass("async: fetch with loading, data and error states");
+
+  await checkDomSecurity(js, pause, until);
+  pass("ordinary attributes reject executable data while normal rendering and Lisp callbacks continue");
 
   assert.deepEqual(pageErrors, []);
   assert.equal(await js("document.querySelector('#elisp-react-error')"), null);

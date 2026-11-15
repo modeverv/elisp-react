@@ -96,6 +96,16 @@ Moving the last of n rows to the front is one `insert`. (React's original "last 
 
 A listener function is never sent to JavaScript, and replacing it (every render creates new closures) costs no DOM operation: only "this node listens for click" is DOM state.
 
+Ordinary DOM attributes are data: the host omits inline `on*` handlers and
+`srcdoc`, and blocks `javascript:` / `vbscript:` in URL attributes (including
+browser-normalized case and whitespace variants). A blocked update removes the
+old attribute and warns with its name only; the remaining operations still run.
+Use Lisp `:on-click` and the other `:on-...` props for callbacks. Text children
+remain text nodes. Page-authored Lisp, `start`/`load`/`run`, and deliberate script
+elements remain trusted application code; this policy is not a general HTML
+sanitizer or a Lisp sandbox. The policy stays in the single host JS file so
+applications that copy `elisp-react.js` need no additional runtime module.
+
 ## The page and time
 
 Emacs Lisp runs only inside a request of the host: an event, or the first render. It cannot wait for anything and it has no access to the page. Both limits are answered the same way the DOM is: what Lisp wants is data in the operation list.

@@ -50,6 +50,29 @@ async function fetchText(url) {
 // DOM methods Lisp may call on a node (`react-invoke').
 const INVOCABLE = new Set(["focus", "blur", "select", "click", "scrollIntoView"]);
 
+// Block inline handler/srcdoc props and script schemes in URL attributes.
+// Page-authored Lisp and deliberately created script elements remain trusted code.
+const URL_ATTRIBUTES = new Set([
+  "href", "src", "action", "formaction", "data", "xlink:href",
+  "background", "cite", "codebase", "longdesc", "manifest", "profile", "usemap",
+]);
+
+export function isSafeAttribute(name, value) {
+  const attribute = name.toLowerCase();
+  if (attribute.startsWith("on") || attribute === "srcdoc") {
+    return false;
+  }
+  if (URL_ATTRIBUTES.has(attribute)) {
+    // URL parsing removes TAB, CR and LF anywhere, then leading C0/space.
+    // Check that spelling before handing the original value to the browser.
+    const url = value.replace(/[\t\r\n]/g, "").replace(/^[\u0000-\u0020]+/, "");
+    if (/^(?:javascript|vbscript):/i.test(url)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function createDom(dispatch, host) {
   const nodes = new Map();       // id -> Node
   const listeners = new Map();   // "id:event" -> function
@@ -91,8 +114,19 @@ function createDom(dispatch, host) {
     text(id, text) { register(id, document.createTextNode(text)); },
     "set-text"(id, text) { node(id).data = text; },
     attr(id, name, value) {
-      if (value === null || value === false) node(id).removeAttribute(name);
-      else node(id).setAttribute(name, value === true ? "" : String(value));
+      const element = node(id);
+      name = String(name);
+      if (value === null || value === false) element.removeAttribute(name);
+      else {
+        const text = value === true ? "" : String(value);
+        if (isSafeAttribute(name, text)) element.setAttribute(name, text);
+        else {
+          // Remove an older value too. Keep applying the batch so Lisp's
+          // mounted tree and the DOM do not diverge after a rejected value.
+          element.removeAttribute(name);
+          console.warn("[elisp-react] ignored unsafe DOM attribute", name);
+        }
+      }
     },
     prop(id, name, value) {
       const element = node(id);
