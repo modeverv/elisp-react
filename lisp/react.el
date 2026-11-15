@@ -788,7 +788,7 @@ The value is a vector of operations for the host, each a vector:
   [\"listen\" ID EVENT OPTIONS]  [\"unlisten\" ID EVENT]
   [\"insert\" PARENT-ID ID BEFORE-ID]  [\"replace\" OLD-ID ID]  [\"remove\" ID]
   [\"mount\" SELECTOR ID]
-  [\"invoke\" ID METHOD]                 call a method of the DOM node
+  [\"invoke\" ID METHOD ARG...]         call a method of the DOM node
   [\"call\" REQUEST-ID COMMAND ARGUMENT]  do it and answer (`react-host-reply')
   [\"tell\" COMMAND ARGUMENT]             do it, no answer
   [\"cancel\" REQUEST-ID]"
@@ -830,14 +830,42 @@ The value is only good for `react-invoke'."
 for a command of the page: its `node(id)' returns the node."
   (and ref (react--host-dom-id ref)))
 
-(defun react-invoke (self name method)
-  "Call METHOD on the DOM node of the element SELF rendered with :ref NAME.
-METHOD is one of \"focus\", \"blur\", \"select\", \"click\" and
-\"scrollIntoView\".  It runs after the DOM changes of this render.
+(defun react-invoke (self name method &rest args)
+  "Call METHOD with ARGS on the DOM node of the element SELF rendered
+with :ref NAME, after the DOM changes of this render.  METHOD is one of
+\"focus\" \"blur\" \"select\" \"click\" \"scrollIntoView\" \"scrollTo\"
+\"scrollBy\" \"setSelectionRange\" \"showModal\" \"show\" \"close\"
+\"requestSubmit\" \"reset\" \"reportValidity\" \"setCustomValidity\"
+\"play\" \"pause\" \"load\" \"requestFullscreen\" \"showPicker\".
+ARGS are JSON data: (react-invoke self \"field\" \"setSelectionRange\" 0 3),
+\(react-invoke self \"list\" \"scrollTo\" \='(:top 0 :behavior \"smooth\")).
 Nothing happens when there is no such element."
   (let ((host (react-ref self name)))
-    (when host (react--emit "invoke" (react--host-dom-id host) method)))
+    (when host (apply #'react--emit "invoke" (react--host-dom-id host) method args)))
   nil)
+
+(defun react-set-property (self name property value)
+  "Set the DOM PROPERTY of the element SELF rendered with :ref NAME to
+VALUE, after the DOM changes of this render.  PROPERTY is one of
+\"indeterminate\" \"selectedIndex\" \"open\" \"muted\" \"volume\"
+\"currentTime\" \"playbackRate\" \"loop\" \"scrollTop\" \"scrollLeft\"
+\(:value and :checked are props).  Booleans are t and nil."
+  (let ((host (react-ref self name)))
+    (when host
+      (react--emit "prop" (react--host-dom-id host) property
+                   (if (memq value '(nil t)) (if value t :false) value))))
+  nil)
+
+(defun react-measure (self name function)
+  "Measure the element SELF rendered with :ref NAME, after the DOM changes
+of this render, and call FUNCTION with a plist: (:x :y :width :height)
+of its box, (:scrollTop :scrollLeft :scrollWidth :scrollHeight
+:clientWidth :clientHeight), and for audio and video (:currentTime
+:duration :paused).  Nothing happens when there is no such element."
+  (let ((host (react-ref self name)))
+    (when host
+      (react-host-call "measure" (list :node (react--host-dom-id host))
+                       (lambda (ok value) (when ok (funcall function value)))))))
 
 (defun react-focus (self name)
   "Give the keyboard focus to the element SELF rendered with :ref NAME."

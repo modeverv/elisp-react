@@ -515,6 +515,24 @@
       (should (equal (react-ref instance "field") nil))
       (should (equal (car log) '("a" t nil))))))
 
+(ert-deftest react-test-imperative ()
+  "Methods with arguments, properties and measuring go to the page by ref."
+  (react-test--fresh
+    (let (self measured)
+      (react-define-component 'react-test-dom-calls
+        :render (lambda (instance) (setq self instance) '(div () (input (:ref "field")))))
+      (react-mount '(react-test-dom-calls) "#app")
+      (react-flush)
+      (react-invoke self "field" "setSelectionRange" 0 3)
+      (react-set-property self "field" "indeterminate" nil)
+      (react-invoke self "missing" "focus")
+      (let ((request (react-measure self "field" (lambda (box) (setq measured box)))))
+        (should (equal (react-test--ops)
+                       `(("invoke" 2 "setSelectionRange" 0 3) ("prop" 2 "indeterminate" :false)
+                         ("call" ,request "measure" (:node 2)))))
+        (react-host-reply request t '(:width 10 :height 2))
+        (should (equal measured '(:width 10 :height 2)))))))
+
 (ert-deftest react-test-timers ()
   "Timers are requests to the host; its answers run the Lisp functions."
   (react-test--fresh

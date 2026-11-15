@@ -47,8 +47,18 @@ async function fetchText(url) {
 // ---- DOM operations ---------------------------------------------------------
 // Lisp names DOM nodes by number (see `react-flush' in react.el).
 
-// DOM methods Lisp may call on a node (`react-invoke').
-const INVOCABLE = new Set(["focus", "blur", "select", "click", "scrollIntoView"]);
+// DOM methods Lisp may call on a node (`react-invoke'), with arguments.
+const INVOCABLE = new Set([
+  "focus", "blur", "select", "click", "scrollIntoView", "scrollTo", "scrollBy",
+  "setSelectionRange", "showModal", "show", "close", "requestSubmit", "reset",
+  "reportValidity", "setCustomValidity", "play", "pause", "load", "requestFullscreen", "showPicker",
+]);
+// DOM properties Lisp may set (`react-set-property'; :value and :checked
+// are props).  Nothing that takes markup or code.
+const SETTABLE = new Set([
+  "value", "checked", "indeterminate", "selectedIndex", "open", "muted", "volume", "currentTime",
+  "playbackRate", "loop", "scrollTop", "scrollLeft",
+]);
 
 // Block inline handler/srcdoc props and script schemes in URL attributes.
 // Page-authored Lisp and deliberately created script elements remain trusted code.
@@ -147,8 +157,12 @@ function createDom(dispatch, host) {
       }
     },
     prop(id, name, value) {
+      if (!SETTABLE.has(name)) {
+        console.warn("[elisp-react] ignored a DOM property Lisp may not set", name);
+        return;
+      }
       const element = node(id);
-      const next = name === "checked" ? Boolean(value) : value ?? "";
+      const next = ["checked", "indeterminate", "open", "muted", "loop"].includes(name) ? Boolean(value) : value ?? "";
       if (element[name] !== next) element[name] = next;
     },
     // OPTIONS (from `react-handler'), decided here because Lisp answers
@@ -202,9 +216,15 @@ function createDom(dispatch, host) {
       if (!container) throw new Error(`elisp-react: nothing matches ${selector}`);
       if (node(id).parentNode !== container) container.replaceChildren(node(id));
     },
-    invoke(id, method) {
+    invoke(id, method, ...args) {
       if (!INVOCABLE.has(method)) throw new Error(`elisp-react: ${method} cannot be invoked from Lisp`);
-      node(id)[method]();
+      const element = node(id);
+      if (typeof element[method] !== "function") {
+        console.warn(`[elisp-react] ${method} is not a method of this node`);
+        return;
+      }
+      // play() and requestFullscreen() may be refused (autoplay, no gesture).
+      Promise.resolve(element[method](...args)).catch((error) => console.warn(`[elisp-react] ${method}:`, error?.message || error));
     },
     call(request, command, argument) { host.call(request, command, argument, (id) => nodes.get(id)); },
     tell(command, argument) { host.tell(command, argument, (id) => nodes.get(id)); },
@@ -332,6 +352,25 @@ function createHost(reply, fetchFunction, address) {
       };
       on.addEventListener(name, listener);
       return () => { clearTimeout(trailing); on.removeEventListener(name, listener); };
+    },
+    // What a node measures: its box, its scrolling, and for media its time.
+    measure(request, { node: id }, nodeOf) {
+      const element = nodeOf(id);
+      queueMicrotask(() => {
+        if (!pending.delete(request)) return;
+        if (!element) { reply(request, false, "No such node"); return; }
+        const box = element.getBoundingClientRect();
+        reply(request, true, {
+          x: box.x, y: box.y, width: box.width, height: box.height,
+          scrollTop: element.scrollTop, scrollLeft: element.scrollLeft,
+          scrollWidth: element.scrollWidth, scrollHeight: element.scrollHeight,
+          clientWidth: element.clientWidth, clientHeight: element.clientHeight,
+          ...(typeof element.currentTime === "number"
+            ? { currentTime: element.currentTime, duration: Number.isFinite(element.duration) ? element.duration : null, paused: element.paused }
+            : {}),
+        });
+      });
+      return () => {};
     },
     // Whether a CSS media query matches: at once, and at each change.
     media(request, { query }) {
