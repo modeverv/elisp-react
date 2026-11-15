@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>page events</title>
+<style>.spacer { height: 3000px; }</style>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'PageEvents
+  :initial-state (lambda (_props) (list :keys nil :width 0 :dark nil :seen nil))
+  :did-mount
+  (lambda (self)
+    (react-listen-page 'window "keydown"
+                       (lambda (event) (react-set-state self :keys (cons (plist-get event :key) (react-state self :keys))))
+                       :keys '("/") :prevent t)
+    (react-listen-page 'window "resize" (lambda (event) (react-set-state self :width (plist-get event :width)))
+                       :throttle 50)
+    (react-media-query "(prefers-color-scheme: dark)" (lambda (dark) (react-set-state self :dark dark)))
+    (react-observe-visible self "end" (lambda (visible _ratio) (react-set-state self :seen visible))))
+  :render
+  (lambda (self)
+    (jsx (div
+          (p (:class "keys") (string-join (react-state self :keys) " "))
+          (p (:class "width") (format "%s" (react-state self :width)))
+          (p (:class "dark") (format "%s" (react-state self :dark)))
+          (p (:class "seen") (format "%s" (react-state self :seen)))
+          (div (:class "spacer"))
+          (p (:ref "end" :class "end") "the end")))))
+(react-mount '(PageEvents) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>
