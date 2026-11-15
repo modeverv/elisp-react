@@ -225,6 +225,17 @@ try {
   })()`), [true, 1, 3, true, true, ""]);
   pass("imperative DOM: Lisp sets allowed properties, calls methods with arguments (selection, scrollTo, showModal) and measures a node; innerHTML is refused");
 
+  // ---- a failed render when source is loaded -------------------------------------------
+  await open("event-payload");
+  const failed = await js(`window.elispReact.load("broken.el", "(react-define-component 'Payload :render (lambda (_self) (car 1)))")
+    .then((loaded) => ({ error: loaded.renderError?.message || null, box: document.querySelector('#elisp-react-error')?.textContent || null }))`);
+  assert.match(failed.error, /wrong-type-argument|Wrong type argument: listp, 1, in Payload/);
+  assert.match(failed.box, /Wrong type argument: listp, 1, in Payload/);
+  await js(`window.elispReact.load("fixed.el", "(react-define-component 'Payload :render (lambda (_self) (jsx (p (:class \\"seen\\") \\"fixed\\"))))")`);
+  assert.equal(await text(".seen"), "fixed");
+  assert.equal(await js("document.querySelector('#elisp-react-error')"), null);
+  pass("load: source whose render fails resolves with renderError naming the component; a good render clears the error box");
+
   console.log("e2e host passed");
 } finally {
   client?.close();

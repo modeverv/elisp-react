@@ -204,6 +204,10 @@ text becomes U+FFFD (with a warning, once per component)."
 :pure t                  Shorthand: render only when a prop or the state
                          changed (`react-shallow-equal').
 :will-unmount FUNCTION   (SELF), before it is taken off.
+:did-catch FUNCTION      (SELF ERROR): a component below failed to render.
+                         That component renders nothing; SELF typically
+                         sets state to render something else instead (an
+                         error boundary).
 
 An element (NAME PROPS CHILD...) then renders this component.  Its
 children reach the component as the prop :children."
@@ -230,10 +234,9 @@ children reach the component as the prop :children."
 (defun react--force-render (instance)
   "Have INSTANCE render again at the next flush, whatever :should-update says."
   (when (react--instance-mounted instance)
-    (setf (react--instance-force instance) t)
-    (unless (react--instance-dirty instance)
-      (setf (react--instance-dirty instance) t)
-      (push instance react--dirty))))
+    (setf (react--instance-force instance) t
+          (react--instance-dirty instance) t)
+    (unless (memq instance react--dirty) (push instance react--dirty))))
 
 (defun react--each-instance (function &optional mounted)
   "Call FUNCTION with every component instance below MOUNTED (or on the page)."
@@ -435,14 +438,43 @@ FUNCTION gets the event, as a plain function prop would.  OPTIONS:
 
 ;;;; Mounting
 
+(define-error 'react-render-error "Error while rendering")
+
 (defun react--render (instance)
-  "Call INSTANCE's render function; the result is one element."
-  (let ((vnode (funcall (plist-get (react--instance-spec instance) :render) instance)))
-    (cond ((null vnode) "")
-          ((and (consp vnode) (not (symbolp (car vnode))))
-           (error "Component %s rendered a list of elements; wrap them in one element"
-                  (react--instance-type instance)))
-          (t vnode))))
+  "Call INSTANCE's render function; the result is one element.
+An error in it is caught by the nearest component above with :did-catch,
+and INSTANCE then renders nothing; without one, it is signalled again as
+`react-render-error', which says which component it came from."
+  (condition-case err
+      (let ((vnode (funcall (plist-get (react--instance-spec instance) :render) instance)))
+        (cond ((null vnode) "")
+              ((and (consp vnode) (not (symbolp (car vnode))))
+               (error "Component %s rendered a list of elements; wrap them in one element"
+                      (react--instance-type instance)))
+              (t vnode)))
+    (error
+     (let ((boundary (react--boundary instance)))
+       (cond (boundary
+              (funcall (plist-get (react--instance-spec boundary) :did-catch) boundary err)
+              "")
+             ((eq (car err) 'react-render-error) (signal (car err) (cdr err)))
+             (t (signal 'react-render-error
+                        (list (format "%s, in %s" (error-message-string err) (react--component-path instance))))))))))
+
+(defun react--boundary (instance)
+  "The nearest component above INSTANCE that has :did-catch, or nil."
+  (let ((ancestor (react--instance-parent instance)))
+    (while (and ancestor (not (plist-get (react--instance-spec ancestor) :did-catch)))
+      (setq ancestor (react--instance-parent ancestor)))
+    ancestor))
+
+(defun react--component-path (instance)
+  "\"Card < Page < App\": INSTANCE and the components above it."
+  (let (names)
+    (while instance
+      (push (symbol-name (react--instance-type instance)) names)
+      (setq instance (react--instance-parent instance)))
+    (mapconcat #'identity (nreverse names) " < ")))
 
 (defun react--mount (vnode depth)
   "Create VNODE (DOM operations and bookkeeping).  Returns it mounted."
@@ -760,9 +792,9 @@ Several changes during one event cause one render."
   (when (and (functionp (car changes)) (null (cdr changes)))
     (setq changes (funcall (car changes) (react--instance-state self))))
   (setf (react--instance-state self) (apply #'react-plist-with (react--instance-state self) changes))
-  (when (and (react--instance-mounted self) (not (react--instance-dirty self)))
+  (when (react--instance-mounted self)
     (setf (react--instance-dirty self) t)
-    (push self react--dirty))
+    (unless (memq self react--dirty) (push self react--dirty)))
   nil)
 
 ;;;; Skipping renders
@@ -835,26 +867,41 @@ Rendering into the same place again updates what is there."
       (when (> (cl-incf rounds) 100)
         (setq react--dirty nil react--did-mount nil react--did-update nil react--effects nil)
         (error "Components keep changing state while rendering"))
+      ;; When one of them fails, what is left waits for the next flush
+      ;; instead of being lost (instances that would never render again,
+      ;; :did-mount functions never called), and the error goes on.
       (let ((dirty (sort react--dirty (lambda (a b) (< (react--instance-depth a) (react--instance-depth b))))))
         (setq react--dirty nil)
-        (dolist (instance dirty)
-          ;; A parent that rendered first may have updated or removed it.
-          (when (and (react--instance-dirty instance) (react--instance-mounted instance))
-            (react--rerender instance))))
+        (while dirty
+          (let ((instance (pop dirty)))
+            ;; A parent that rendered first may have updated or removed it.
+            (when (and (react--instance-dirty instance) (react--instance-mounted instance))
+              (condition-case err (react--rerender instance)
+                (error (setq react--dirty (append dirty react--dirty))
+                       (signal (car err) (cdr err))))))))
       (let ((mounted (nreverse react--did-mount)))
         (setq react--did-mount nil)
-        (dolist (instance mounted)
-          (when (react--instance-mounted instance)
-            (react--lifecycle instance :did-mount))))
+        (while mounted
+          (let ((instance (pop mounted)))
+            (when (react--instance-mounted instance)
+              (condition-case err (react--lifecycle instance :did-mount)
+                (error (setq react--did-mount (append react--did-mount (reverse mounted)))
+                       (signal (car err) (cdr err))))))))
       (let ((updated (nreverse react--did-update)))
         (setq react--did-update nil)
-        (dolist (entry updated)
-          (when (react--instance-mounted (car entry))
-            (apply #'react--lifecycle (car entry) :did-update (cdr entry)))))
+        (while updated
+          (let ((entry (pop updated)))
+            (when (react--instance-mounted (car entry))
+              (condition-case err (apply #'react--lifecycle (car entry) :did-update (cdr entry))
+                (error (setq react--did-update (append react--did-update (reverse updated)))
+                       (signal (car err) (cdr err))))))))
       (let ((effects (nreverse react--effects)))
         (setq react--effects nil)
-        (dolist (effect effects)
-          (react--run-effect effect))))))
+        (while effects
+          (let ((effect (pop effects)))
+            (condition-case err (react--run-effect effect)
+              (error (setq react--effects (append react--effects (reverse effects)))
+                     (signal (car err) (cdr err))))))))))
 
 (defun react-effect (self key deps function)
   "In a render of SELF: run FUNCTION after the render when DEPS changed.

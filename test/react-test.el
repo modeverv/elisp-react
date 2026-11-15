@@ -972,6 +972,56 @@
       (react-unmount "#app")
       (should (equal (nreverse log) '(unmount (stop 50)))))))
 
+(ert-deftest react-test-render-errors ()
+  "A render error names its component and loses nothing that was waiting."
+  (react-test--fresh
+    (let (left right mounted)
+      (react-define-component 'react-test-fragile
+        :initial-state (lambda (_props) (list :n 0))
+        :render (lambda (self)
+                  (if (eq (react-props self :side) 'left) (setq left self) (setq right self))
+                  (when (and (eq (react-props self :side) 'left) (= (react-state self :n) 1))
+                    (error "Broken at one"))
+                  `(span () ,(format "%s" (react-state self :n)))))
+      (react-define-component 'react-test-pair
+        :render (lambda (_self) '(div () (react-test-fragile (:side left)) (react-test-fragile (:side right)))))
+      (react-mount '(react-test-pair) "#app")
+      (react-flush)
+      (react-set-state left :n 1)
+      (react-set-state right :n 1)
+      (let ((err (should-error (react-flush) :type 'react-render-error)))
+        (should (string-match-p "Broken at one, in react-test-fragile < react-test-pair"
+                                (error-message-string err))))
+      ;; The sibling was not lost: the next flush renders it.
+      (react-flush)
+      (should (equal (react-html "#app") "<div><span>0</span><span>1</span></div>"))
+      ;; A :did-mount that fails does not lose the others.
+      (react-define-component 'react-test-mounts
+        :did-mount (lambda (self) (push (react-props self :n) mounted) (when (= (react-props self :n) 1) (error "No")))
+        :render (lambda (_self) "m"))
+      (react-mount '(div () (react-test-mounts (:n 1)) (react-test-mounts (:n 2))) "#other")
+      (should-error (react-flush))
+      (react-flush)
+      (should (equal (sort mounted #'<) '(1 2))))))
+
+(ert-deftest react-test-error-boundary ()
+  "A component with :did-catch catches a render error below it."
+  (react-test--fresh
+    (let (caught)
+      (react-define-component 'react-test-thrower
+        :render (lambda (_self) (car 1)))
+      (react-define-component 'react-test-boundary
+        :initial-state (lambda (_props) (list :failed nil))
+        :did-catch (lambda (self err) (setq caught (car err)) (react-set-state self :failed t))
+        :render (lambda (self)
+                  (if (react-state self :failed)
+                      '(p () "Something went wrong")
+                    '(div () (react-test-thrower)))))
+      (react-mount '(react-test-boundary) "#app")
+      (react-flush)
+      (should (eq caught 'wrong-type-argument))
+      (should (equal (react-html "#app") "<p>Something went wrong</p>")))))
+
 (ert-deftest react-test-redefinition-keeps-state ()
   "A component that is defined again renders anew with the state its instances have."
   (react-test--fresh
