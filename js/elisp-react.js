@@ -23,6 +23,9 @@
 // the events "elisp-react:ready" and "elisp-react:error" fire on document.
 
 const DEFAULT_WASMACS = "https://modeverv.github.io/wasmacs/";
+// The version of the operations and commands this host speaks with
+// react.el (`react--protocol').
+const PROTOCOL = 2;
 
 // Where the wasmacs eval service is published.  <meta name="elisp-react:wasmacs">
 // sets it for a page; ?wasmacs=... overrides it for local development and is
@@ -963,6 +966,10 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
     return loaded;
   };
   const first = await loadMeasured(new URL(library, location.href).href, libraryText, { cache, manifest });
+  const spoken = await emacs.eval("(and (boundp 'react--protocol) react--protocol)");
+  if (spoken !== PROTOCOL) {
+    throw new Error(`${new URL(library, location.href).href} speaks protocol ${spoken ?? "1 (or none)"}, this elisp-react.js ${PROTOCOL}: load the two from one release`);
+  }
   hooks.progress({ phase: "lisp", url: new URL(library, location.href).href, from: first.from });
   const compileLogs = [];
   let previous = first.hash;

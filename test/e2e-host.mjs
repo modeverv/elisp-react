@@ -421,6 +421,12 @@ try {
   assert.equal(await text(".greeting"), "hello page");
   pass("require: a file requires a library the page lists after it; every file of the page is on load-path");
 
+  // ---- a react.el of another release -------------------------------------------------
+  await client.send("Page.navigate", { url: `${site.origin}/test/pages/protocol/${wasmacsQuery}` }, sessionId);
+  await until("Boolean(window.startError)", "the page starts");
+  assert.match(await js("window.startError"), /old-react\.el speaks protocol 1 \(or none\), this elisp-react\.js 2: load the two from one release/);
+  pass("protocol: a react.el of another release than elisp-react.js is refused with a clear message");
+
   console.log("e2e host passed");
 } finally {
   client?.close();

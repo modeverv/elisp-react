@@ -57,6 +57,8 @@ Emacs Lisp で書いた React です。
 (react-mount (jsx (Counter (:start 3))) "#app")
 ```
 
+**版を固定する。** サイトの `js/elisp-react.js` は、いつでも `main` の内容です。リリースには `vX.Y.Z` のタグを付け、サイトはそれぞれを `v/X.Y.Z/` にずっと置きます。`https://modeverv.github.io/elisp-react/v/0.1.0/js/elisp-react.js` を読むページは、そのリリースと、その `react.el` を使い続けます。2つは同じリリースかどうかを確かめ合い（プロトコルの番号）、違えばそう伝えます。Emacs 本体は wasmacs のサイトから来て、こちらも動きます。固定したいページは自分でコピーを置き（elisp-studio の `fetch-emacs.sh` で作れます）、`<meta name="elisp-react:wasmacs">` でそれを指します。
+
 ## 設定
 
 自動で起動するページは、設定を `<meta>` 要素から読みます。手で起動するページ（`<html>` に `data-elisp-react-manual`）は `start()` に渡します。
