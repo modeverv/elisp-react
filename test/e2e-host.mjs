@@ -155,7 +155,12 @@ try {
   assert.equal(await js("location.hash"), "");
   await click(".back");
   await until("document.querySelector('.hash').textContent === '#/linked'", "back in memory");
-  pass("location: a page without an address of its own (elisp-studio's preview) gets one in memory, with links, history and Back");
+  await js("window.seen = []; document.addEventListener('elisp-react:location', (event) => seen.push(event.detail.hash)); window.elispReact.location.navigate('#/from-outside'); true");
+  await until("document.querySelector('.hash').textContent === '#/from-outside'", "a tool navigates the page");
+  assert.deepEqual(await js("[window.seen, window.elispReact.location.current.hash]"), [["#/from-outside"], "#/from-outside"]);
+  await js("window.elispReact.location.go(-1); true");
+  await until("document.querySelector('.hash').textContent === '#/linked'", "a tool goes back");
+  pass("location: a page without an address of its own (elisp-studio's preview) gets one in memory, with links, history and Back; tools see it and move it");
 
   // ---- events of the page -------------------------------------------------------------
   await client.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] }, sessionId);

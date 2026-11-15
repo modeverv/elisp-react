@@ -963,6 +963,8 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
   // Lisp hears of a new address after the DOM changes it is part of.
   let started = false;
   const address = createLocation(locationMode, (described) => {
+    // For tools around the page (an address bar in elisp-studio).
+    document.dispatchEvent(new CustomEvent("elisp-react:location", { detail: described }));
     if (started && !stopped) queueMicrotask(() => apply(emacs.call("react--location-changed", described), "a new address"));
   });
   host = createHost((request, ok, value) => {
@@ -1054,6 +1056,14 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
       }
       document.querySelector("#elisp-react-error")?.remove();
       return loaded;
+    },
+    // The page's address (kept in memory where the page has none): what it
+    // is, and going somewhere from outside the page; "elisp-react:location"
+    // says when it changes.
+    location: {
+      get current() { return address.describe(); },
+      navigate: (url, replace = false) => address.navigate(url, replace),
+      go: (delta) => address.go(delta),
     },
     // Call the Lisp function NAME with ARGS (JSON data) and render what it
     // changed: how page JavaScript talks to Lisp.  Resolves when the page
