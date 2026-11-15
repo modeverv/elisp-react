@@ -133,23 +133,39 @@ function createDom(dispatch, host) {
       const next = name === "checked" ? Boolean(value) : value ?? "";
       if (element[name] !== next) element[name] = next;
     },
-    listen(id, name) {
+    // OPTIONS (from `react-handler'), decided here because Lisp answers
+    // too late: keys (only these event.key), self (only events of this
+    // node itself), prevent, stop, capture, passive, throttle.
+    listen(id, name, options = null) {
       const key = `${id}:${name}`;
-      if (listeners.has(key)) return;
+      const signature = JSON.stringify(options);
+      const old = listeners.get(key);
+      if (old?.signature === signature) return;
+      if (old) operations.unlisten(id, name);
+      const { keys, self, prevent, stop, capture, passive, throttle } = options || {};
+      let last = 0, trailing = null;
+      const send = (event) => { last = performance.now(); dispatch(id, name, describe(event)); };
       const listener = (event) => {
-        // Lisp answers later, too late to decide this: a form handled in
-        // Lisp is not also submitted by the browser.
-        if (name === "submit") event.preventDefault();
-        dispatch(id, name, describe(event));
+        if (keys?.length && !keys.includes(event.key)) return;
+        if (self && event.target !== event.currentTarget) return;
+        // A form handled in Lisp is not also submitted by the browser.
+        if (prevent || name === "submit") event.preventDefault();
+        if (stop) event.stopPropagation();
+        if (!throttle) { send(event); return; }
+        clearTimeout(trailing);
+        const wait = last + throttle - performance.now();
+        if (wait <= 0) send(event);
+        else trailing = setTimeout(() => send(event), wait);
       };
-      listeners.set(key, listener);
-      node(id).addEventListener(name, listener);
+      listeners.set(key, { listener, signature, capture: Boolean(capture), stop: () => clearTimeout(trailing) });
+      node(id).addEventListener(name, listener, { capture: Boolean(capture), passive: Boolean(passive) });
     },
     unlisten(id, name) {
       const key = `${id}:${name}`;
-      const listener = listeners.get(key);
-      if (!listener) return;
-      node(id).removeEventListener(name, listener);
+      const entry = listeners.get(key);
+      if (!entry) return;
+      entry.stop();
+      node(id).removeEventListener(name, entry.listener, { capture: entry.capture });
       listeners.delete(key);
     },
     insert(parentId, id, beforeId) { node(parentId).insertBefore(node(id), beforeId === null ? null : node(beforeId)); },

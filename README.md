@@ -218,6 +218,15 @@ Children of a list that changes get a `:key`: `(li (:key id) ...)`. A child with
 
 Props of DOM elements: `:on-click`, `:on-input`, `:on-submit`, ... are listeners (the function gets a plist `:type :value :checked :key`, and for a file input `:files`, a vector of `(:name :size :type)`); `:value` and `:checked` are DOM properties, so inputs are controlled; `:style` is a string or a plist; everything else is an attribute (`nil` removes it, `t` sets it empty). The host omits inline `on*` attributes and `srcdoc`, and removes script URLs in URL attributes, while continuing the render. Use Lisp `:on-...` callbacks. Page-authored Lisp and deliberately created script elements remain trusted code; see [the DOM boundary](doc/design.md#operations).
 
+Lisp answers an event after the browser has acted on it, too late to stop a link or a key. A listener that says beforehand what the page should do is a `react-handler`:
+
+```elisp
+(input (:on-keydown (react-handler #'search :keys '("Enter") :prevent t)))
+(div (:class "backdrop" :on-click (react-handler #'close-dialog :self t)) ...)
+```
+
+`:keys` (only these keys), `:self` (only events of the element itself, not of its children), `:prevent` (`preventDefault`), `:stop` (`stopPropagation`: the parents' listeners do not hear it), `:capture`, `:passive`, and `:throttle MS` (one event per `MS` at most, the last one kept).
+
 ## Changing a running page
 
 A component that is defined again while it is on the page takes the new definition and renders again with the state its instances have. The host exposes this as `window.elispReact.load(name, text)`, which compiles and evaluates changed source in the running page. [elisp-studio](https://github.com/modeverv/elisp-studio) builds on it: Emacs in the browser edits the files, and the application next to it changes at every save, without a reload.

@@ -178,7 +178,31 @@
       (funcall set '(:class "b" :value "typed" :on-input ignore))
       (should (equal (sort (react-test--ops) (lambda (a b) (string< (format "%S" a) (format "%S" b))))
                      '(("attr" 1 "class" "b") ("attr" 1 "title" nil)
-                       ("listen" 1 "input") ("prop" 1 "value" "typed") ("unlisten" 1 "click")))))))
+                       ("listen" 1 "input" nil) ("prop" 1 "value" "typed") ("unlisten" 1 "click")))))))
+
+(ert-deftest react-test-handler-options ()
+  "A react-handler tells the page what to do before Lisp answers."
+  (react-test--fresh
+    (let (set log)
+      (react-define-component 'react-test-search
+        :initial-state (lambda (_props) (list :prevent t))
+        :render (lambda (self)
+                  (setq set (lambda (prevent) (react-set-state self :prevent prevent)))
+                  `(input (:on-keydown ,(react-handler (lambda (event) (push (plist-get event :key) log))
+                                                       :keys '("Enter") :prevent (react-state self :prevent)
+                                                       :ignored 1)))))
+      (react-mount '(react-test-search) "#app")
+      (should (equal (react-test--find "listen" (react-test--ops))
+                     '(("listen" 1 "keydown" (:keys ["Enter"] :prevent t)))))
+      (react-dispatch-event 1 "keydown" '(:key "Enter"))
+      (should (equal log '("Enter")))
+      ;; A new handler with the same options: nothing for the page.
+      (funcall set t)
+      (should (equal (react-test--find "listen" (react-test--ops)) nil))
+      ;; Other options: listened to again.
+      (funcall set nil)
+      (should (equal (react-test--find "listen" (react-test--ops))
+                     '(("listen" 1 "keydown" (:keys ["Enter"] :prevent nil))))))))
 
 (ert-deftest react-test-operations-are-json ()
   "The host receives the operations as JSON."

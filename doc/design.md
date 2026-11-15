@@ -171,7 +171,7 @@ The eval service answers one request at a time, in order, and the host applies e
 
 A request that runs for ever (an endless loop in a handler) cannot be interrupted: the worker is busy and takes no message. The host therefore gives each request a time limit (`timeout`, 30 s by default). When it passes, the host stops the service, cancels what it was doing for Lisp (timers, requests) and reports an error with the symbol `timeout`. Without that, the page would go on scrolling and drawing (the main thread is free) while nothing reacts, and no error would ever be raised.
 
-The submit event of a form is always `preventDefault`ed by the host when Lisp listens for it, because Lisp answers after the browser has made its decision.
+The submit event of a form is always `preventDefault`ed by the host when Lisp listens for it, because Lisp answers after the browser has made its decision. For the same reason everything else a listener has to decide at once (filter by key, ignore children, prevent, stop, capture, passive, throttle) travels with the `listen` operation as options, from a `react-handler` prop, and the host applies it synchronously. A listener whose options change is listened to again.
 
 ## Tests
 
