@@ -496,6 +496,15 @@
     (react-mount (jsx (ul (mapcar (lambda (n) (when (cl-oddp n) (jsx (li n)))) '(2 3)))) "#app")
     (should (equal (react-html "#app") "<ul><li>3</li></ul>"))))
 
+(ert-deftest react-test-misspelled-component ()
+  "A Capitalized tag that is no component is warned about, once."
+  (react-test--fresh
+    (let (messages)
+      (cl-letf (((symbol-function 'message) (lambda (format &rest args) (push (apply #'format format args) messages))))
+        (react-mount '(div () (VideoCrad (:title "x")) (VideoCrad ()) (X-widget ()) (span ())) "#app"))
+      (should (= (length messages) 1))
+      (should (string-match-p "VideoCrad is not a defined component" (car messages))))))
+
 (ert-deftest react-test-jsx-renders ()
   "Components written with `jsx' render and update like the others."
   (react-test--fresh

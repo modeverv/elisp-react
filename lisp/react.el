@@ -538,6 +538,7 @@ and INSTANCE then renders nothing; without one, it is signalled again as
             (react--svg (and svg (not (eq tag 'foreignObject))))
             (mounted (react--host-create :dom-id id :tag tag :props props :owner react--owner
                                          :svg react--svg)))
+       (react--check-tag tag)
        (if svg (react--emit "create" id (symbol-name tag) "svg") (react--emit "create" id (symbol-name tag)))
        (puthash id mounted react--hosts)
        (react--set-ref mounted nil (plist-get props :ref))
@@ -605,6 +606,19 @@ tree leads back to itself."
       (and (eq (react--ref-handle-owner a) (react--ref-handle-owner b))
            (equal (react--ref-handle-name a) (react--ref-handle-name b)))
     (and (not (react--ref-handle-p a)) (not (react--ref-handle-p b)) (equal a b))))
+
+(defvar react--warned-tags nil "Capitalized tags already warned about.")
+
+(defun react--check-tag (tag)
+  "Warn, once, about a Capitalized TAG that is no component: HTML, SVG
+and custom element names are lower case or have a hyphen, so it is
+most likely a component whose name is misspelled or not loaded yet."
+  (let ((name (symbol-name tag)))
+    (when (and (<= ?A (aref name 0) ?Z) (not (string-search "-" name))
+               (not (memq tag react--warned-tags)))
+      (push tag react--warned-tags)
+      (message "react: %s is not a defined component; it is rendered as an unknown element <%s> \
+\(a misspelled name, or a file loaded too late?)" name (downcase name)))))
 
 (defun react--set-ref (host old new)
   "HOST's :ref changed from OLD to NEW (nil: none): a name, or a ref made
@@ -1846,7 +1860,7 @@ before writing when tabs share a list."
   (clrhash react--storage-watchers)
   (clrhash react--queries)
   (setq react--location nil react--location-watchers nil)
-  (setq react--warned-invalid nil)
+  (setq react--warned-invalid nil react--warned-tags nil)
   nil)
 
 (defun react--html (mounted)
