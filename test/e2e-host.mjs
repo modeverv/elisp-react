@@ -366,6 +366,24 @@ try {
   assert.equal(batches.length < 30, true, `${batches.length} requests for 30 answers`);
   pass(`answers together: 30 timers that fire at once reach Lisp in ${batches.length} requests (${batches.join(" + ")}), not 30`);
 
+  // ---- the visitor's language and time ---------------------------------------------
+  await client.send("Emulation.setTimezoneOverride", { timezoneId: "Asia/Tokyo" }, sessionId);
+  await client.send("Emulation.setLocaleOverride", { locale: "ja-JP" }, sessionId);
+  await open("intl");
+  await until("document.querySelector('.texts').textContent !== 'nil'", "the texts arrive");
+  assert.equal(await text(".zone"), "Asia/Tokyo 540");
+  const expected = await js(`JSON.stringify([
+    new Intl.NumberFormat(navigator.languages, { notation: "compact" }).format(1234567),
+    new Intl.RelativeTimeFormat(navigator.languages).format(-3, "day"),
+    new Intl.DateTimeFormat(navigator.languages, { dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-15T03:00:00Z")),
+    new Intl.ListFormat(navigator.languages).format(["りんご", "みかん", "ぶどう"])])`);
+  const shown = await text(".texts");
+  for (const each of JSON.parse(expected)) assert.equal(shown.includes(JSON.stringify(each)), true, `${each} in ${shown}`);
+  assert.match(shown, /\("あんず" "ぶどう" "みかん"\)/);
+  await client.send("Emulation.setLocaleOverride", {}, sessionId);
+  await client.send("Emulation.setTimezoneOverride", { timezoneId: "" }, sessionId);
+  pass(`intl: Lisp knows the visitor's time zone and has the browser write numbers, relative times, dates and lists, and sort: ${shown}`);
+
   console.log("e2e host passed");
 } finally {
   client?.close();

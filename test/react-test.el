@@ -1060,6 +1060,23 @@
       (react-host-reply media t '(:matches nil))
       (should (equal (nreverse log) '("/" "Escape" t nil))))))
 
+(ert-deftest react-test-intl ()
+  "The visitor's locale is known; Intl texts are asked of the page."
+  (react-test--fresh
+    (react--locale-set '(:languages ["ja" "en"] :timeZone "Asia/Tokyo" :offset 540))
+    (should (equal (react-locale :timeZone) "Asia/Tokyo"))
+    (let (texts)
+      (let ((request (react-intl '((:type number :value 1234567 :options (:notation "compact"))
+                                   (:type sort :value ("b" "a")))
+                                 (lambda (value) (setq texts value)))))
+        (should (equal (react-test--ops)
+                       `(("call" ,request "intl"
+                          (:items [(:type "number" :value 1234567 :unit nil :options (:notation "compact"))
+                                   (:type "sort" :value ["b" "a"] :unit nil :options nil)]
+                           :locale nil)))))
+        (react-host-reply request t ["123万" ["a" "b"]])
+        (should (equal texts '("123万" ("a" "b"))))))))
+
 (ert-deftest react-test-queries ()
   "Queries are shared by key, loaded once, kept, and loaded again when invalidated."
   (react-test--fresh

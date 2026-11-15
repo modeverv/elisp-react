@@ -1606,6 +1606,58 @@ the page (:did-mount).  Returns the observer, for `react-cancel'."
                          (when ok (funcall function (plist-get value :visible) (plist-get value :ratio))))
                        t))))
 
+;;;; The page: its language and time
+
+;; The page's Emacs runs in the C locale: `format-time-string' writes
+;; English names, `string-collate-lessp' compares code points, and the
+;; zone of `format-time-string' is the browser's whatever it is told
+;; (except t, UTC).  The browser knows better; Lisp asks it.
+
+(defvar react--locale nil "(:languages [...] :timeZone ... :offset MINUTES) of the browser.")
+
+(defun react--locale-set (locale)
+  (setq react--locale locale)
+  nil)
+
+(defun react-locale (&optional part)
+  "The visitor's languages and time zone: (:languages [\"ja\" \"en-US\"]
+:timeZone \"Asia/Tokyo\" :offset 540), or its PART.  :offset is the
+minutes east of UTC now.  Known from the start on."
+  (if part (plist-get react--locale part) react--locale))
+
+(defun react--intl-items (items)
+  (vconcat (mapcar (lambda (item)
+                     (let ((value (plist-get item :value)))
+                       (list :type (format "%s" (plist-get item :type))
+                             :value (if (and (listp value) value) (vconcat value) value)
+                             :unit (plist-get item :unit)
+                             :options (plist-get item :options))))
+                   items)))
+
+(defun react-intl (items function &optional locale)
+  "Have the browser's Intl write ITEMS, then call FUNCTION with the texts,
+a list in the same order.  An item is a plist:
+
+  (:type number :value 1234567 :options (:notation \"compact\"))  \"123万\"
+  (:type date :value MILLISECONDS-OR-ISO :options (:dateStyle \"medium\"))
+  (:type relative :value -3 :unit \"day\")                        \"3 日前\"
+  (:type plural :value 2)                                          \"other\"
+  (:type list :value (\"a\" \"b\"))                               \"a、b\"
+  (:type sort :value (\"b\" \"a\"))       a list, sorted for the locale
+
+Options are those of Intl's constructors.  LOCALE defaults to the
+visitor's languages.  The texts arrive later: keep them in state.
+Returns the request, for `react-cancel'."
+  (react-host-call "intl" (list :items (react--intl-items items) :locale locale)
+                   (lambda (ok value)
+                     (when ok
+                       (funcall function (mapcar (lambda (text) (if (vectorp text) (append text nil) text))
+                                                 (append value nil)))))))
+
+(defun react-intl-async (items &optional locale)
+  "An awaitable for `react-intl': its value is the list of texts."
+  (lambda (resolve _reject) (react-intl items resolve locale)))
+
 ;;;; The page: its address
 
 (defvar react--location nil "The page's address: (:href :pathname :search :hash).")
@@ -1876,7 +1928,7 @@ before writing when tabs share a list."
   (clrhash react--storage)
   (clrhash react--storage-watchers)
   (clrhash react--queries)
-  (setq react--location nil react--location-watchers nil)
+  (setq react--location nil react--location-watchers nil react--locale nil)
   (setq react--warned-invalid nil react--warned-tags nil)
   nil)
 
