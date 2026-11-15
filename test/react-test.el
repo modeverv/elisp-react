@@ -505,6 +505,15 @@
       (should (= (length messages) 1))
       (should (string-match-p "VideoCrad is not a defined component" (car messages))))))
 
+(ert-deftest react-test-inspect ()
+  "The mounted components with their props and state."
+  (react-test--fresh
+    (react-mount '(div () (react-test-counter (:label "a" :start 2))) "#app")
+    (react-flush)
+    (should (equal (react-inspect "#app")
+                   '((:component react-test-counter :depth 0 :props (:label "a" :start 2) :state (:count 2)))))
+    (should (equal (length (react-inspect)) 1))))
+
 (ert-deftest react-test-render-to-string ()
   "A server renders HTML without a page: escaped, no lifecycle, nothing left."
   (react-test--fresh
