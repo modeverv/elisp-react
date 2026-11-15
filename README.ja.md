@@ -152,6 +152,7 @@ doc/experiment-notes.md  ここまでの実験で分かったこと
 | `(react-mount ELEMENT SELECTOR)` | CSS セレクタで指定したページ上の要素に描画します。 |
 | `(jsx MARKUP)` | バッククォートなしで要素を作ります。HTML か SVG のタグで始まる `(TAG ...)` と、大文字で始まる名前の `(Component ...)` がマークアップです。`(svg ...)` の中の要素は SVG として作られます（インラインのグラフやアイコン）。prop の値、子、それ以外のものはすべて Lisp として評価されます。その Lisp の中でマークアップを書くときは、もう一度 `jsx` を使います。 |
 | `(react-provide KEY VALUE CHILD)`、`(react-context SELF KEY [DEFAULT])` | `CHILD` より下のすべての部品に、間の props を通さずに、`KEY` で `VALUE` を渡します（言語、サインインしている人）。部品は `react-context` で読み、値が変わると描き直されます。その部品やその上の部品が `:pure` でも描き直されます。 |
+| `(react-inspect [SELECTOR])` | マウントされている部品を、親から順に `(:component :depth :props :state)` で返します。外から見るためのものです（elisp-studio は頼まれるとこれを評価します）。 |
 | `(react-force-update SELF)`、`(react-refresh [TYPE])` | 1つのインスタンス、またはマウントされているすべて（部品 `TYPE` のものだけ）を、`:should-update` にかかわらず描き直します。props と state の外で読んでいるデータが変わったときに使います。 |
 | `(react-render-to-string ELEMENT)` | `ELEMENT` を、ページ無しで HTML の文字列にします。クローラー、リンクのプレビュー、最初の表示を速くするための、サーバーが送る最初の画面です。native Emacs でも動きます。部品は最初の state で描かれ、描画の後の処理は動かず、何もマウントされたまま残りません。本文と属性はエスケープされます（その後ページがその上にマウントし直します。hydration はありません）。 |
 | `(react-plist-with PLIST :key VALUE ...)` | 指定したキーを設定した新しい plist を返します。`PLIST` は変更しません。state の中のレコード用です。 |

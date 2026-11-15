@@ -1993,6 +1993,19 @@ is forgotten that long after: a later start removes it, and
                        (mapconcat #'react--html (react--host-children mounted) "")
                        tag))))))
 
+(defun react-inspect (&optional selector)
+  "The mounted components (at SELECTOR, or all of them), parents first:
+a list of (:component NAME :depth N :props PROPS :state STATE).  For a
+look from outside, as elisp-studio's evaluation gives one."
+  (let (out)
+    (react--each-instance
+     (lambda (instance)
+       (push (list :component (react--instance-type instance) :depth (react--instance-depth instance)
+                   :props (react--instance-props instance) :state (react--instance-state instance))
+             out))
+     (and selector (gethash selector react--roots)))
+    (nreverse out)))
+
 (defun react-html (selector)
   "What is mounted at SELECTOR, as HTML text (after pending renders).
 Text and attribute values are escaped."
