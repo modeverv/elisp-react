@@ -142,15 +142,30 @@ doc/experiment-notes.md  ここまでの実験で分かったこと
 
 要素はただの Lisp データです。`"text"`、`(TAG PROPS CHILD...)`、`(TAG CHILD...)` のいずれかで、`PROPS` は plist です。子の中の `nil` は無視され、要素のリスト（`mapcar` の結果）はその場に展開されます。
 
+`(<> CHILD...)` は fragment（JSX の `<>`）です。その子は、まわりに要素を置かずに、fragment のある場所に並びます。コンポーネントが、表の2つの行、`<dt>` とその `<dd>`、grid の複数の項目を描き、しかも自分の state を持てます。fragment が取る prop は `:key` だけです（キーのある fragment は、子ごと移動します）。`:render` が要素のリストを返すコンポーネントは、それを fragment として描きます。
+
+```elisp
+(react-define-component 'Row        ; 下に2つ目の行を開く行
+  :initial-state (lambda (_props) (list :open nil))
+  :render
+  (lambda (self)
+    (jsx (<> (tr (:on-click (lambda (_event) (react-set-state self :open (not (react-state self :open)))))
+               (td (react-props self :name)))
+             (when (react-state self :open)
+               (jsx (tr (:class "detail") (td "more"))))))))
+```
+
+ページの上では、fragment はその子のノードと、そのあとの空のテキストノードです。空のテキストノードは、子がないときも含めて、fragment の場所の目印です。
+
 | | |
 |---|---|
-| `(react-define-component NAME :render F :initial-state F :did-mount F :did-update F :will-unmount F)` | コンポーネントを定義します。`:render` はインスタンスを受け取り、要素を1つ返します。`(NAME PROPS CHILD...)` という要素がこのコンポーネントになり、子は `:children` という prop で届きます。`:did-update` はインスタンス、前回の props、前回の state を受け取ります。 |
+| `(react-define-component NAME :render F :initial-state F :did-mount F :did-update F :will-unmount F)` | コンポーネントを定義します。`:render` はインスタンスを受け取り、要素を1つ、または要素のリスト（fragment になります）を返します。`(NAME PROPS CHILD...)` という要素がこのコンポーネントになり、子は `:children` という prop で届きます。`:did-update` はインスタンス、前回の props、前回の state を受け取ります。 |
 | `:did-catch (lambda (self error) ...)` | エラー境界です。下の部品が描画に失敗すると、その部品は何も描かず、この部品はふつう state を変えて別のものを表示します。境界が無ければ、エラーは `react-render-error` としてページに届き、その部品と上の部品の名前（`Card < Page < App`）を示します。描画を待っていたものは、次のイベントで描画されます。 |
 | `(react-effect SELF KEY DEPS F)` | 描画の中で使います。前に実行したときから `DEPS`（`equal` で比べる任意のデータ）が変わっていれば、描画の後に `F` を実行します。`F` が関数を返すと、それが次の実行の前と、部品が外されるときの後始末になります。状態を持つ処理を、いくつもの部品が呼ぶ普通の関数にできます。`:did-mount`、`:did-update`、`:will-unmount` には関数のリストも渡せます。 |
 | `(react-props SELF [KEY])`、`(react-state SELF [KEY])` | インスタンスの props / state（plist）、またはその中の1つの値。 |
 | `(react-set-state SELF :key VALUE ...)` | 指定したキーを差し替えた新しい state を設定し、再描画します。「古い state を受け取って変更分を返す関数」を1つ渡すこともできます。1回のイベント中に何度呼んでも、描画は1回です。 |
 | `(react-mount ELEMENT SELECTOR)` | CSS セレクタで指定したページ上の要素に描画します。 |
-| `(jsx MARKUP)` | バッククォートなしで要素を作ります。HTML か SVG のタグで始まる `(TAG ...)` と、大文字で始まる名前の `(Component ...)` がマークアップです。`(svg ...)` の中の要素は SVG として作られます（インラインのグラフやアイコン）。prop の値、子、それ以外のものはすべて Lisp として評価されます。その Lisp の中でマークアップを書くときは、もう一度 `jsx` を使います。 |
+| `(jsx MARKUP)` | バッククォートなしで要素を作ります。HTML か SVG のタグで始まる `(TAG ...)`、大文字で始まる名前の `(Component ...)`、fragment の `(<> ...)` がマークアップです。`(svg ...)` の中の要素は SVG として作られます（インラインのグラフやアイコン）。prop の値、子、それ以外のものはすべて Lisp として評価されます。その Lisp の中でマークアップを書くときは、もう一度 `jsx` を使います。 |
 | `(react-provide KEY VALUE CHILD)`、`(react-context SELF KEY [DEFAULT])` | `CHILD` より下のすべての部品に、間の props を通さずに、`KEY` で `VALUE` を渡します（言語、サインインしている人）。部品は `react-context` で読み、値が変わると描き直されます。その部品やその上の部品が `:pure` でも描き直されます。 |
 | `(react-inspect [SELECTOR])` | マウントされている部品を、親から順に `(:component :depth :props :state)` で返します。外から見るためのものです（elisp-studio は頼まれるとこれを評価します）。 |
 | `(react-force-update SELF)`、`(react-refresh [TYPE])` | 1つのインスタンス、またはマウントされているすべて（部品 `TYPE` のものだけ）を、`:should-update` にかかわらず描き直します。props と state の外で読んでいるデータが変わったときに使います。 |

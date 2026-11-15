@@ -33,7 +33,7 @@ A start is guarded: it has a time limit (`bootTimeout`, two minutes by default) 
 
 ## Elements
 
-An element is a list `(TAG PROPS CHILD...)`. `TAG` is a symbol: the name of a component if one is defined with that name (`react-define-component` puts the definition on the symbol's property list), otherwise an HTML tag. `PROPS` is a plist and may be left out; it is recognised by starting with a keyword. Strings and numbers are text.
+An element is a list `(TAG PROPS CHILD...)`. `TAG` is a symbol: the name of a component if one is defined with that name (`react-define-component` puts the definition on the symbol's property list), otherwise an HTML tag. `PROPS` is a plist and may be left out; it is recognised by starting with a keyword. Strings and numbers are text. `(<> CHILD...)` is a fragment: its children without an element of their own.
 
 Nothing has to be registered or compiled to write an element: it is quoted data, and backquote fills in the dynamic parts.
 
@@ -46,19 +46,30 @@ Nothing has to be registered or compiled to write an element: it is quoted data,
 (list 'p (list :id name) (upcase name))
 ```
 
-The macro has to tell markup from Lisp without evaluating anything. A list is markup if it starts with an HTML tag (a fixed list, `react-html-tags`) or with a Capitalized symbol, which is a component as in JSX. Whether a symbol names a component cannot be asked at expansion time: a component may be defined later, or be the one being defined. Everything else is Lisp and is left alone, so markup nested in Lisp (`when`, `mapcar`, a helper function) needs its own `jsx`.
+The macro has to tell markup from Lisp without evaluating anything. A list is markup if it starts with an HTML tag (a fixed list, `react-html-tags`), with a Capitalized symbol, which is a component as in JSX, or with `<>`, a fragment. Whether a symbol names a component cannot be asked at expansion time: a component may be defined later, or be the one being defined. Everything else is Lisp and is left alone, so markup nested in Lisp (`when`, `mapcar`, a helper function) needs its own `jsx`.
 
 The plain-list form remains the foundation and has no naming rule; `jsx` is a convenience on top.
 
 ## The mounted tree
 
-`react.el` remembers what is on the page as a tree of three structures:
+`react.el` remembers what is on the page as a tree of four structures:
 
 - `react--text`: a text node and its string,
 - `react--host`: a DOM element with its tag, props and mounted children,
-- `react--instance`: a component instance with its props, its state and the one mounted node it rendered.
+- `react--fragment`: mounted children without an element of their own, and an anchor,
+- `react--instance`: a component instance with its props, its state and what it rendered (one mounted thing).
 
 Text and host nodes carry a `dom-id`, a number Lisp chooses. That number is all Lisp knows of the DOM.
+
+### Fragments
+
+Everything mounted used to be one DOM node, and every operation named one node. A fragment is several: `react--nodes` lists them, the nodes of its children and then its anchor, an empty text node that Lisp creates with the fragment. The anchor keeps the fragment's place when it has no children, and it is the end that its children are placed against. `react--dom-id` is the first node of a mounted thing (its anchor for an empty fragment): what a sibling is inserted in front of.
+
+A fragment's children have no parent element that the fragment knows of, and neither does a component instance whose output changes from one element to a fragment. So placing them is relative: `["before", id, beforeId]` puts a node in front of another wherever that one is (the DOM's `before()`). `react--update-children` takes the anchor as the end of a fragment's children and places with `before` there; with a parent element it inserts as before. Replacing a single node by a single node is still one `replace`; otherwise the new nodes go in front of the old first node and the old nodes are removed. A fragment at the root mounts with all its nodes, `["mount", selector, id...]`.
+
+The anchor is an empty text node rather than a comment because the operations already make text nodes. An empty text node takes no box in a flex or grid container, does not count for `:empty` or `:first-child`, and is not a row of a table.
+
+`test/react-test.el` checks fragments with the page model of `react-testing.el`: elements turning into fragments, empty ones and text and back between siblings; a fragment at the root; and 300 rounds of random groups of rows, each a fragment (some keyed, some nested, some a component's list), added, removed, resized and shuffled, comparing the page model with the mounted tree node by node, anchors included, while clicks check that state follows the keys.
 
 `react-render-to-string` mounts an element in tables of its own (let-bound over the global ones), takes its HTML and drops everything: no operations reach a page, no `:did-mount` runs, nothing stays mounted. `react--html` escapes text and attribute values and writes void elements without an end tag, so the text is HTML a server can send.
 
@@ -67,7 +78,8 @@ Text and host nodes carry a `dom-id`, a number Lisp chooses. That number is all 
 `react--update MOUNTED ELEMENT` makes a mounted node show a new element:
 
 - Same kind (text; same tag; same component; equal `:key`): update in place. Text: one `set-text` if the string differs. Element: diff the props, then the children. Component: store the new props, call `:render`, reconcile what it rendered before with the new result.
-- Otherwise: mount the new element, emit `replace`, unmount the old node (which runs `:will-unmount` below it).
+- Same kind, fragments: reconcile their children, placed in front of the fragment's anchor.
+- Otherwise: mount the new element, put its nodes where the old ones are (`replace`, or `before` and `remove` when either is a fragment), unmount the old node (which runs `:will-unmount` below it).
 
 ### Children and keys
 
@@ -94,8 +106,9 @@ Moving the last of n rows to the front is one `insert`. (React's original "last 
 ["attr", id, name, value]   value: string, true (present), null (remove)
 ["prop", id, name, value]   DOM property: value, checked
 ["listen", id, event]    ["unlisten", id, event]
-["insert", parentId, id, beforeId]   ["replace", oldId, id]   ["remove", id]
-["mount", selector, id]
+["insert", parentId, id, beforeId]   ["before", id, beforeId]
+["replace", oldId, id]   ["remove", id]
+["mount", selector, id...]
 ```
 
 `js/elisp-react.js` applies them in order. Its listeners all do the same thing: describe the event as a small object and call `react-dispatch-event` with the node's id. Lisp finds the element's current props, calls the `:on-...` function and returns the operations that follow.

@@ -28,7 +28,9 @@
   id tag text attributes properties children parent listeners html)
 
 (defvar react-testing--nodes (make-hash-table) "DOM id -> node.")
-(defvar react-testing--roots nil "Alist: selector -> node.")
+(defvar react-testing--roots nil
+  "Alist: selector -> the page element it names, a node without a tag
+whose children are what is mounted there.")
 (defvar react-testing-requests nil
   "What Lisp asked of the page and waits for, oldest first.
 Each is (REQUEST COMMAND ARGUMENT).")
@@ -103,23 +105,42 @@ visit before had stored it.  Use it before rendering."
             (setf (react-testing--node-children parent)
                   (if at (append (cl-subseq children 0 at) (list node) (nthcdr at children))
                     (append children (list node)))))))
+       (`("before" ,id ,before)
+        ;; As the DOM's before(): nothing when BEFORE is in no parent.
+        (let* ((node (react-testing--node id)) (before (react-testing--node before))
+               (parent (react-testing--node-parent before)))
+          (when parent
+            (react-testing--detach node)
+            (let* ((children (react-testing--node-children parent))
+                   (at (cl-position before children)))
+              (setf (react-testing--node-children parent)
+                    (append (cl-subseq children 0 at) (list node) (nthcdr at children))
+                    (react-testing--node-parent node) parent)))))
        (`("replace" ,old ,id)
         (let* ((old (react-testing--node old)) (node (react-testing--node id))
                (parent (react-testing--node-parent old)))
           (react-testing--detach node)
-          (if parent
-              (progn (setf (react-testing--node-children parent)
-                           (cl-substitute node old (react-testing--node-children parent)))
-                     (setf (react-testing--node-parent node) parent (react-testing--node-parent old) nil))
-            (setq react-testing--roots
-                  (mapcar (lambda (root) (if (eq (cdr root) old) (cons (car root) node) root)) react-testing--roots)))
+          (when parent
+            (setf (react-testing--node-children parent)
+                  (cl-substitute node old (react-testing--node-children parent)))
+            (setf (react-testing--node-parent node) parent (react-testing--node-parent old) nil))
           (react-testing--forget old)))
        (`("remove" ,id)
         (let ((node (react-testing--node id)))
           (react-testing--detach node)
-          (setq react-testing--roots (cl-remove node react-testing--roots :key #'cdr))
           (react-testing--forget node)))
-       (`("mount" ,selector ,id) (setf (alist-get selector react-testing--roots nil nil #'equal) (react-testing--node id)))
+       (`("mount" ,selector . ,ids)
+        (let ((container (or (cdr (assoc selector react-testing--roots))
+                             (let ((new (react-testing--node-create)))
+                               (push (cons selector new) react-testing--roots)
+                               new)))
+              (nodes (mapcar #'react-testing--node ids)))
+          (unless (eq (react-testing--node-parent (car nodes)) container)
+            (dolist (child (react-testing--node-children container))
+              (setf (react-testing--node-parent child) nil))
+            (mapc #'react-testing--detach nodes)
+            (dolist (node nodes) (setf (react-testing--node-parent node) container))
+            (setf (react-testing--node-children container) nodes))))
        (`("html" ,id ,html) (setf (react-testing--node-html (react-testing--node id)) html))
        (`("invoke" ,id ,method . ,args) (setq react-testing-invoked (append react-testing-invoked (list (cl-list* id method args)))))
        (`("call" ,request ,command ,argument)
@@ -201,7 +222,7 @@ or string), CLASS (one of its classes), TEXT (its whole text), ATTRIBUTE
 (defun react-testing-html (&optional selector)
   "The page (at SELECTOR, default \"#app\") as HTML, for a quick look."
   (let ((root (cdr (assoc (or selector "#app") react-testing--roots))))
-    (and root (react-testing--html root))))
+    (and root (mapconcat #'react-testing--html (react-testing--node-children root) ""))))
 
 (defun react-testing--html (node)
   (if (react-testing--node-text node)

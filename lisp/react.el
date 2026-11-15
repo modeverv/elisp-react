@@ -24,6 +24,8 @@
 ;;   (div CHILD...)                      PROPS may be left out
 ;;   (counter (:start 3))                a component, defined with
 ;;                                       `react-define-component'
+;;   (<> CHILD...)                       a fragment: its children, without
+;;                                       an element around them (JSX's <>)
 ;;
 ;; PROPS is a plist with keyword keys.  For a DOM element:
 ;;
@@ -58,6 +60,13 @@
 ;; same key is the same child: it keeps its DOM node and its components keep
 ;; their state, wherever it now stands.  Without keys children are matched
 ;; by position.
+;;
+;; A fragment puts its children where it stands, among its parent's
+;; children: a component can render two table rows, a <dt> and its <dd>,
+;; or the items of a grid.  It takes no props but :key, and a component
+;; that renders a list of elements renders a fragment of them:
+;;
+;;   (jsx (<> (tr (td name)) (when open (jsx (tr (td details))))))
 
 ;;; Components
 ;;
@@ -116,6 +125,12 @@
   owner       ; the component instance whose render produced it
   svg)        ; its children are SVG elements
 
+(cl-defstruct (react--fragment (:constructor react--fragment-create))
+  props       ; (:key KEY) or nil
+  children    ; mounted; their nodes are siblings in the parent's node
+  anchor)     ; the DOM id of an empty text node after them: where the
+              ; fragment is, also when it has no children
+
 (cl-defstruct (react--instance (:constructor react--instance-create))
   type        ; the component's name
   spec        ; its definition (plist)
@@ -132,7 +147,7 @@
   effects     ; alist: effect key -> (DEPS . CLEANUP), see `react-effect'
   svg)        ; it renders inside an <svg>
 
-(defconst react--protocol 2
+(defconst react--protocol 3
   "The version of the operations and commands between this file and
 js/elisp-react.js.  The host refuses a react.el of another version.")
 
@@ -188,10 +203,45 @@ text becomes U+FFFD (with a warning, once per component)."
   (cl-incf react--next-dom-id))
 
 (defun react--dom-id (mounted)
-  "The id of the DOM node that MOUNTED is on the page."
+  "The id of the first DOM node that MOUNTED is on the page."
   (cond ((react--text-p mounted) (react--text-dom-id mounted))
         ((react--host-p mounted) (react--host-dom-id mounted))
+        ((react--fragment-p mounted)
+         (let ((children (react--fragment-children mounted)))
+           (if children (react--dom-id (car children)) (react--fragment-anchor mounted))))
         (t (react--dom-id (react--instance-child mounted)))))
+
+(defun react--nodes (mounted)
+  "The ids of the DOM nodes that MOUNTED is on the page, in order: one,
+or for a fragment the nodes of its children and then its anchor."
+  (cond ((react--text-p mounted) (list (react--text-dom-id mounted)))
+        ((react--host-p mounted) (list (react--host-dom-id mounted)))
+        ((react--fragment-p mounted)
+         (nconc (mapcan #'react--nodes (react--fragment-children mounted))
+                (list (react--fragment-anchor mounted))))
+        (t (react--nodes (react--instance-child mounted)))))
+
+(defun react--place (parent-id mounted before)
+  "Put the DOM nodes of MOUNTED in front of the node BEFORE.
+In the node PARENT-ID, at its end when BEFORE is nil; without PARENT-ID
+\(a fragment's children) next to BEFORE, wherever that is."
+  (dolist (id (react--nodes mounted))
+    (if parent-id
+        (react--emit "insert" parent-id id before)
+      (react--emit "before" id before))))
+
+(defun react--take-off (mounted)
+  "Take the DOM nodes of MOUNTED off the page."
+  (dolist (id (react--nodes mounted)) (react--emit "remove" id)))
+
+(defun react--replace (old new)
+  "Put the DOM nodes of NEW where those of OLD are, and take those off."
+  (let ((old-nodes (react--nodes old))
+        (new-nodes (react--nodes new)))
+    (if (and (null (cdr old-nodes)) (null (cdr new-nodes)))
+        (react--emit "replace" (car old-nodes) (car new-nodes))
+      (dolist (id new-nodes) (react--emit "before" id (car old-nodes)))
+      (dolist (id old-nodes) (react--emit "remove" id)))))
 
 ;;;; Elements
 
@@ -256,7 +306,9 @@ children reach the component as the prop :children."
          (funcall function mounted)
          (react--each-instance function (react--instance-child mounted)))
         ((react--host-p mounted)
-         (dolist (child (react--host-children mounted)) (react--each-instance function child)))))
+         (dolist (child (react--host-children mounted)) (react--each-instance function child)))
+        ((react--fragment-p mounted)
+         (dolist (child (react--fragment-children mounted)) (react--each-instance function child)))))
 
 (defun react--element-props (element)
   "The props of ELEMENT, which is (TAG [PROPS] CHILD...)."
@@ -282,8 +334,9 @@ children reach the component as the prop :children."
     (nreverse out)))
 
 (defun react--kind (vnode)
-  "What VNODE renders as: `text', (host . TAG) or (component . NAME)."
+  "What VNODE renders as: `text', `fragment', (host . TAG) or (component . NAME)."
   (cond ((or (stringp vnode) (numberp vnode)) 'text)
+        ((and (consp vnode) (eq (car vnode) '<>)) 'fragment)
         ((and (consp vnode) (car vnode) (symbolp (car vnode)))
          (cons (if (get (car vnode) 'react-component) 'component 'host) (car vnode)))
         (t (error "Not an element: %S" vnode))))
@@ -315,14 +368,15 @@ as SVG.")
 ;; Markup indents like a special form with one distinguished argument, the
 ;; props: (div (:class "x")
 ;;           (p "child"))
-(dolist (tag (append react-html-tags react-svg-tags))
+(dolist (tag (cons '<> (append react-html-tags react-svg-tags)))
   (unless (get tag 'lisp-indent-function)
     (put tag 'lisp-indent-function 1)))
 
 (defun react--jsx-element-p (form)
   "Non-nil if FORM is markup for `jsx': (TAG ...) or (Component ...)."
   (and (consp form) (symbolp (car form)) (car form)
-       (or (memq (car form) react-html-tags)
+       (or (eq (car form) '<>)
+           (memq (car form) react-html-tags)
            (memq (car form) react-svg-tags)
            (let ((first (aref (symbol-name (car form)) 0)))
              (and (<= ?A first) (<= first ?Z))))))
@@ -358,7 +412,8 @@ FORM and everything in it is read like this:
 
 - A list that starts with an HTML tag (`react-html-tags') or with a
   Capitalized symbol is an element: (TAG PROPS CHILD...) or (TAG CHILD...).
-  Capitalized names are components, as in JSX.  The prop names are taken
+  Capitalized names are components, as in JSX; <> is a fragment, its
+  children without an element around them.  The prop names are taken
   as they are; the prop values and the children are read by these rules.
 - Anything else is Lisp and is evaluated: a variable, a string, a call
   like (format ...) or (mapcar ...).  Its value may be an element, a list
@@ -366,7 +421,7 @@ FORM and everything in it is read like this:
 
 The value is the same plain list a backquote would build."
   (unless (react--jsx-element-p form)
-    (error "jsx: %S does not start with an HTML tag or a Capitalized component name" form))
+    (error "jsx: %S does not start with an HTML tag, a Capitalized component name or <>" form))
   (react--jsx form))
 
 (defalias 'jsx #'react-jsx)
@@ -500,7 +555,8 @@ A list of classes is joined; t and :false of an ARIA attribute are
 (define-error 'react-render-error "Error while rendering")
 
 (defun react--render (instance)
-  "Call INSTANCE's render function; the result is one element.
+  "Call INSTANCE's render function; the result is one element (a list
+of elements is a fragment of them).
 An error in it is caught by the nearest component above with :did-catch,
 and INSTANCE then renders nothing; without one, it is signalled again as
 `react-render-error', which says which component it came from."
@@ -508,8 +564,7 @@ and INSTANCE then renders nothing; without one, it is signalled again as
       (let ((vnode (funcall (plist-get (react--instance-spec instance) :render) instance)))
         (cond ((null vnode) "")
               ((and (consp vnode) (or (null (car vnode)) (not (symbolp (car vnode)))))
-               (error "Component %s rendered a list of elements; wrap them in one element"
-                      (react--instance-type instance)))
+               (cons '<> vnode))
               (t vnode)))
     (error
      (let ((boundary (react--boundary instance)))
@@ -564,7 +619,7 @@ and INSTANCE then renders nothing; without one, it is signalled again as
        (setf (react--host-children mounted)
              (mapcar (lambda (child)
                        (let ((mounted-child (react--mount child depth)))
-                         (react--emit "insert" id (react--dom-id mounted-child) nil)
+                         (react--place id mounted-child nil)
                          mounted-child))
                      (react--element-children vnode)))
        ;; After the children: a <select>'s value names one of its options.
@@ -585,7 +640,18 @@ and INSTANCE then renders nothing; without one, it is signalled again as
        (let ((react--owner instance))
          (setf (react--instance-child instance) (react--mount (react--render instance) (1+ depth))))
        (when (plist-get spec :did-mount) (push instance react--did-mount))
-       instance))))
+       instance))
+    ('fragment
+     ;; Its nodes are put in place by whoever puts the fragment there.
+     (let ((props (react--element-props vnode)))
+       (when (cl-set-difference (cl-loop for key in props by #'cddr collect key) '(:key))
+         (error "A fragment takes no props but :key: %S" props))
+       (let* ((children (mapcar (lambda (child) (react--mount child depth))
+                                (react--element-children vnode)))
+              (mounted (react--fragment-create :props props :children children
+                                               :anchor (react--new-dom-id))))
+         (react--emit "text" (react--fragment-anchor mounted) "")
+         mounted)))))
 
 (defun react--lifecycle (instance key &rest args)
   "Call INSTANCE's KEY (:did-mount ...): a function, or a list of them."
@@ -656,6 +722,8 @@ with `react-make-ref'."
          (remhash (react--host-dom-id mounted) react--hosts)
          (react--set-ref mounted (plist-get (react--host-props mounted) :ref) nil)
          (mapc #'react--unmount (react--host-children mounted)))
+        ((react--fragment-p mounted)
+         (mapc #'react--unmount (react--fragment-children mounted)))
         ((react--instance-p mounted)
          (react--lifecycle mounted :will-unmount)
          (dolist (effect (react--instance-effects mounted))
@@ -676,6 +744,10 @@ with `react-make-ref'."
     (`(component . ,name)
      (and (react--instance-p mounted) (eq (react--instance-type mounted) name)
           (equal (plist-get (react--instance-props mounted) :key)
+                 (plist-get (react--element-props vnode) :key))))
+    ('fragment
+     (and (react--fragment-p mounted)
+          (equal (plist-get (react--fragment-props mounted) :key)
                  (plist-get (react--element-props vnode) :key))))))
 
 (defun react--update (mounted vnode depth)
@@ -685,9 +757,15 @@ a replacement that has taken its place in the DOM."
   (cond
    ((not (react--same-p mounted vnode))
     (let ((new (react--mount vnode depth)))
-      (react--emit "replace" (react--dom-id mounted) (react--dom-id new))
+      (react--replace mounted new)
       (react--unmount mounted)
       new))
+   ((react--fragment-p mounted)
+    (setf (react--fragment-props mounted) (react--element-props vnode)
+          (react--fragment-children mounted)
+          (react--update-children nil (react--fragment-children mounted) (react--element-children vnode)
+                                  depth (react--fragment-anchor mounted)))
+    mounted)
    ((react--text-p mounted)
     (let ((text (react--text-of vnode)))
       (unless (equal text (react--text-text mounted))
@@ -713,7 +791,8 @@ a replacement that has taken its place in the DOM."
 (defun react--mounted-key (mounted)
   "The :key that MOUNTED was rendered with, or nil."
   (cond ((react--host-p mounted) (plist-get (react--host-props mounted) :key))
-        ((react--instance-p mounted) (plist-get (react--instance-props mounted) :key))))
+        ((react--instance-p mounted) (plist-get (react--instance-props mounted) :key))
+        ((react--fragment-p mounted) (plist-get (react--fragment-props mounted) :key))))
 
 (defun react--vnode-key (vnode)
   (and (consp vnode) (plist-get (react--element-props vnode) :key)))
@@ -752,13 +831,16 @@ Returns a bool-vector: t at the positions that belong to it."
         (setq i (aref previous i))))
     keep))
 
-(defun react--update-children (parent-id mounted vnodes depth)
+(defun react--update-children (parent-id mounted vnodes depth &optional end)
   "Update the children MOUNTED of the DOM node PARENT-ID to VNODES.
 A new child takes over the old child with the same identity (see
 `react--identities'): that one keeps its DOM node and, below it, the
 state of its components, wherever it is in the new order.  Old children
 that nobody took over are removed, the rest is created.  Returns the new
-list of mounted children."
+list of mounted children.
+
+A fragment's children have no PARENT-ID: they are placed in front of
+the node END (its anchor) and of each other."
   (let ((old (make-hash-table :test #'equal))
         (seen (make-hash-table :test #'equal))
         (index -1)
@@ -781,7 +863,7 @@ list of mounted children."
     (let (gone)
       (maphash (lambda (_identity entry) (push entry gone)) old)
       (dolist (entry (sort gone (lambda (a b) (< (car a) (car b)))))
-        (react--emit "remove" (react--dom-id (cdr entry)))
+        (react--take-off (cdr entry))
         (react--unmount (cdr entry))))
     ;; The old children that are still in their old order relative to each
     ;; other (a longest such set) stay where they are.  Every other child,
@@ -790,10 +872,11 @@ list of mounted children."
     (let* ((kept (delq nil (mapcar #'cdr placed)))   ; old positions, last child first
            (stay (react--longest-increasing (vconcat (nreverse kept))))
            (position (length stay))
-           before out)
+           (before end)
+           out)
       (dolist (entry placed)
         (unless (and (cdr entry) (aref stay (cl-decf position)))
-          (react--emit "insert" parent-id (react--dom-id (car entry)) before))
+          (react--place parent-id (car entry) before))
         (setq before (react--dom-id (car entry)))
         (push (car entry) out))
       out)))
@@ -828,9 +911,7 @@ list of mounted children."
 (react-define-component 'react-provider
   :render (lambda (self)
             (let ((children (react-props self :children)))
-              (when (cdr children)
-                (error "react-provide takes one child; wrap the others in one element"))
-              (car children)))
+              (if (cdr children) (cons '<> children) (car children))))
   :did-update (lambda (self previous-props _previous-state)
                 (unless (react--same-value-p (react-props self :value) (plist-get previous-props :value))
                   (setf (react--instance-readers self)
@@ -1000,7 +1081,7 @@ Rendering into the same place again updates what is there."
     (if root
         (puthash selector (react--update root element 0) react--roots)
       (setq root (puthash selector (react--mount element 0) react--roots)))
-    (react--emit "mount" selector (react--dom-id (gethash selector react--roots))))
+    (apply #'react--emit "mount" selector (react--nodes (gethash selector react--roots))))
   selector)
 
 (defun react-root (selector)
@@ -1013,7 +1094,7 @@ nil (nothing there, or an element rather than a component)."
   "Take down what `react-mount' rendered into SELECTOR."
   (let ((root (gethash selector react--roots)))
     (when root
-      (react--emit "remove" (react--dom-id root))
+      (react--take-off root)
       (react--unmount root)
       (remhash selector react--roots)))
   nil)
@@ -1095,8 +1176,9 @@ The value is a vector of operations for the host, each a vector:
   [\"create\" ID TAG [\"svg\"]]  [\"text\" ID STRING]  [\"set-text\" ID STRING]
   [\"attr\" ID NAME VALUE]  [\"prop\" ID NAME VALUE]
   [\"listen\" ID EVENT OPTIONS]  [\"unlisten\" ID EVENT]
-  [\"insert\" PARENT-ID ID BEFORE-ID]  [\"replace\" OLD-ID ID]  [\"remove\" ID]
-  [\"mount\" SELECTOR ID]
+  [\"insert\" PARENT-ID ID BEFORE-ID]  [\"before\" ID BEFORE-ID]
+  [\"replace\" OLD-ID ID]  [\"remove\" ID]
+  [\"mount\" SELECTOR ID...]            the root's nodes (several: a fragment)
   [\"html\" ID HTML]                    cleaned HTML in the node (:inner-html)
   [\"invoke\" ID METHOD ARG...]         call a method of the DOM node
   [\"call\" REQUEST-ID COMMAND ARGUMENT]  do it and answer (`react-host-reply')
@@ -1976,6 +2058,7 @@ is forgotten that long after: a later start removes it, and
 (defun react--html (mounted)
   (cond ((react--text-p mounted) (react--escape (react--text-text mounted)))
         ((react--instance-p mounted) (react--html (react--instance-child mounted)))
+        ((react--fragment-p mounted) (mapconcat #'react--html (react--fragment-children mounted) ""))
         (t (let ((attributes "") (plist (react--host-props mounted))
                  (tag (react--host-tag mounted)))
              (while plist
