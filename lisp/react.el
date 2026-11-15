@@ -110,7 +110,8 @@
 
 (cl-defstruct (react--host (:constructor react--host-create))
   dom-id tag props children
-  owner)      ; the component instance whose render produced it
+  owner       ; the component instance whose render produced it
+  svg)        ; its children are SVG elements
 
 (cl-defstruct (react--instance (:constructor react--instance-create))
   type        ; the component's name
@@ -125,7 +126,8 @@
   force       ; render even if :should-update says no (the definition changed)
   parent      ; the component instance whose render produced it, or nil
   readers     ; for a context provider: the instances that read it
-  effects)    ; alist: effect key -> (DEPS . CLEANUP), see `react-effect'
+  effects     ; alist: effect key -> (DEPS . CLEANUP), see `react-effect'
+  svg)        ; it renders inside an <svg>
 
 (defvar react--next-dom-id 0)
 (defvar react--ops nil "DOM operations for the host, newest first.")
@@ -135,6 +137,7 @@
 (defvar react--did-mount nil "Instances mounted since the last flush.")
 (defvar react--did-update nil "(INSTANCE PREVIOUS-PROPS PREVIOUS-STATE) of renders since the last flush.")
 (defvar react--owner nil "The component instance that is rendering.")
+(defvar react--svg nil "Non-nil while mounting inside an <svg> (elements in the SVG namespace).")
 (defvar react--effects nil "(INSTANCE KEY DEPS FUNCTION) to run after the renders, newest first.")
 (defvar react--next-request 0)
 (defvar react--requests (make-hash-table) "Request id -> (FUNCTION . KEEP) waiting for the host.")
@@ -290,10 +293,20 @@ children reach the component as the prop :children."
     textarea tfoot th thead time title tr track u ul var video wbr)
   "The HTML elements that `jsx' recognises.")
 
+(defconst react-svg-tags
+  '(svg g defs symbol use path circle ellipse line polyline polygon rect text tspan textPath
+    linearGradient radialGradient stop clipPath mask pattern marker image foreignObject
+    animate animateMotion animateTransform desc filter feBlend feColorMatrix
+    feComposite feFlood feGaussianBlur feMerge feMergeNode feOffset feDropShadow)
+  "The SVG elements that `jsx' recognises (not `set', a Lisp function:
+write that one with backquote).  Inside an <svg> every element is created
+as SVG.")
+
 (defun react--jsx-element-p (form)
   "Non-nil if FORM is markup for `jsx': (TAG ...) or (Component ...)."
   (and (consp form) (symbolp (car form)) (car form)
        (or (memq (car form) react-html-tags)
+           (memq (car form) react-svg-tags)
            (let ((first (aref (symbol-name (car form)) 0)))
              (and (<= ?A first) (<= first ?Z))))))
 
@@ -486,8 +499,12 @@ and INSTANCE then renders nothing; without one, it is signalled again as
     (`(host . ,tag)
      (let* ((id (react--new-dom-id))
             (props (react--element-props vnode))
-            (mounted (react--host-create :dom-id id :tag tag :props props :owner react--owner)))
-       (react--emit "create" id (symbol-name tag))
+            (svg (or (eq tag 'svg) react--svg))
+            ;; In <foreignObject> the children are HTML again.
+            (react--svg (and svg (not (eq tag 'foreignObject))))
+            (mounted (react--host-create :dom-id id :tag tag :props props :owner react--owner
+                                         :svg react--svg)))
+       (if svg (react--emit "create" id (symbol-name tag) "svg") (react--emit "create" id (symbol-name tag)))
        (puthash id mounted react--hosts)
        (react--set-ref mounted nil (plist-get props :ref))
        (let ((plist props))
@@ -507,7 +524,7 @@ and INSTANCE then renders nothing; without one, it is signalled again as
             (initial (plist-get spec :initial-state))
             (instance (react--instance-create
                        :type name :spec spec :props props :depth depth :mounted t
-                       :parent react--owner)))
+                       :parent react--owner :svg react--svg)))
        ;; :initial-state may read a context: it needs the parent.
        (setf (react--instance-state instance) (and initial (funcall initial props)))
        (setf (react--instance-rendered-props instance) props
@@ -591,8 +608,9 @@ a replacement that has taken its place in the DOM."
         (react--set-ref mounted (plist-get (react--host-props mounted) :ref) (plist-get props :ref)))
       (setf (react--host-props mounted) props))
     (setf (react--host-children mounted)
-          (react--update-children (react--host-dom-id mounted) (react--host-children mounted)
-                                  (react--element-children vnode) depth))
+          (let ((react--svg (react--host-svg mounted)))
+            (react--update-children (react--host-dom-id mounted) (react--host-children mounted)
+                                    (react--element-children vnode) depth)))
     mounted)
    (t
     (setf (react--instance-props mounted) (react--component-props vnode))
@@ -702,7 +720,8 @@ list of mounted children."
               react--did-update))
       (setf (react--instance-rendered-props instance) (react--instance-props instance)
             (react--instance-rendered-state instance) (react--instance-state instance))
-      (let ((react--owner instance))
+      (let ((react--owner instance)
+            (react--svg (react--instance-svg instance)))
         (setf (react--instance-child instance)
               (react--update (react--instance-child instance) (react--render instance)
                              (1+ (react--instance-depth instance))))))))
@@ -934,7 +953,7 @@ A helper that keeps a timer running while a component is on the page:
   "Finish pending renders.  Returns the DOM operations since the last call.
 The value is a vector of operations for the host, each a vector:
 
-  [\"create\" ID TAG]  [\"text\" ID STRING]  [\"set-text\" ID STRING]
+  [\"create\" ID TAG [\"svg\"]]  [\"text\" ID STRING]  [\"set-text\" ID STRING]
   [\"attr\" ID NAME VALUE]  [\"prop\" ID NAME VALUE]
   [\"listen\" ID EVENT OPTIONS]  [\"unlisten\" ID EVENT]
   [\"insert\" PARENT-ID ID BEFORE-ID]  [\"replace\" OLD-ID ID]  [\"remove\" ID]

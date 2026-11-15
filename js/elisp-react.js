@@ -83,6 +83,15 @@ export function isSafeAttribute(name, value) {
   return true;
 }
 
+// An SVG animation can set an attribute to a value later: <animate
+// attributeName="href" to="javascript:...">.  Its values are URLs too.
+const ANIMATIONS = new Set(["animate", "set", "animateMotion", "animateTransform"]);
+function isScriptAnimation(element, name, value) {
+  return element.namespaceURI === "http://www.w3.org/2000/svg" && ANIMATIONS.has(element.localName)
+    && ["to", "from", "values", "by"].includes(name.toLowerCase())
+    && /(^|;)\s*(?:javascript|vbscript):/i.test(value.replace(/[\t\r\n]/g, ""));
+}
+
 function createDom(dispatch, host) {
   const nodes = new Map();       // id -> Node
   const listeners = new Map();   // "id:event" -> function
@@ -138,7 +147,9 @@ function createDom(dispatch, host) {
   };
 
   const operations = {
-    create(id, tag) { register(id, document.createElement(tag)); },
+    create(id, tag, namespace) {
+      register(id, namespace === "svg" ? document.createElementNS("http://www.w3.org/2000/svg", tag) : document.createElement(tag));
+    },
     text(id, text) { register(id, document.createTextNode(text)); },
     "set-text"(id, text) { node(id).data = text; },
     attr(id, name, value) {
@@ -147,7 +158,7 @@ function createDom(dispatch, host) {
       if (value === null || value === false) element.removeAttribute(name);
       else {
         const text = value === true ? "" : String(value);
-        if (isSafeAttribute(name, text)) element.setAttribute(name, text);
+        if (isSafeAttribute(name, text) && !isScriptAnimation(element, name, text)) element.setAttribute(name, text);
         else {
           // Remove an older value too. Keep applying the batch so Lisp's
           // mounted tree and the DOM do not diverge after a rejected value.

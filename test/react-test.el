@@ -471,6 +471,23 @@
       (react-dispatch-event div "click" nil)
       (should (equal (react-html "#app") "<div><em>hello, on</em><b>!</b></div>")))))
 
+(ert-deftest react-test-svg ()
+  "Elements inside <svg> are created in the SVG namespace, also later."
+  (react-test--fresh
+    (let (dot)
+      (should (equal (jsx (svg (:viewBox "0 0 10 10") (circle (:r 2)))) '(svg (:viewBox "0 0 10 10") (circle (:r 2)))))
+      (react-define-component 'react-test-dot
+        :initial-state (lambda (_props) (list :big nil))
+        :render (lambda (self) (setq dot self)
+                  (if (react-state self :big) '(rect (:width 4)) '(circle (:r 2)))))
+      (react-mount '(div () (svg () (g () (react-test-dot)) (foreignObject () (p () "html"))) (span ())) "#app")
+      (should (equal (mapcar #'cdr (react-test--find "create" (react-test--ops)))
+                     '((1 "div") (2 "svg" "svg") (3 "g" "svg") (4 "circle" "svg")
+                       (5 "foreignObject" "svg") (6 "p") (8 "span"))))
+      ;; A component inside the svg renders SVG again later.
+      (react-set-state dot :big t)
+      (should (equal (mapcar #'cdr (react-test--find "create" (react-test--ops))) '((9 "rect" "svg")))))))
+
 (ert-deftest react-test-plist-with ()
   (let ((todo '(:id 1 :text "a" :done nil)))
     (should (equal (react-plist-with todo :done t :text "b") '(:id 1 :text "b" :done t)))
