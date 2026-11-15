@@ -7,7 +7,7 @@
 // (../wasmacs/docs, or $WASMACS_DOCS), served on a second origin; without
 // one, from the public site.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -301,6 +301,17 @@ try {
   assert.equal(await text(".greeting"), "v3");
   assert.equal(await js("Object.keys(localStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 0);
   pass("compiled code: a change in a file loaded before (a macro) compiles the files after it again; cache:false keeps nothing");
+
+  // ---- compiled ahead of time -----------------------------------------------------------
+  execFileSync("node", [`${root}/tools/compile.mjs`, "-o", `${root}/test/pages/precompiled/compiled.json`,
+                        `${root}/test/pages/precompiled/app.el`], { stdio: ["ignore", "ignore", "pipe"] });
+  await open("precompiled");
+  await js("localStorage.clear(); true");
+  await open("precompiled");
+  assert.equal(await text(".greeting"), "compiled before the visit");
+  assert.deepEqual(await js("[window.elispReact.library.from, ...window.elispReact.compileLogs.map((each) => each.from)]"), ["manifest", "manifest"]);
+  assert.equal(await js("Object.keys(localStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 0);
+  pass("compiled ahead of time: with a manifest from tools/compile.mjs the first visit compiles neither react.el nor the page's Lisp");
 
   console.log("e2e host passed");
 } finally {

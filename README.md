@@ -38,7 +38,7 @@ What it comes to:
 (react-mount '(counter (:start 3)) "#app")
 ```
 
-There is no build step. The page's `<script type="text/emacs-lisp">` elements (with `src`, or inline) are byte-compiled and run by Emacs in document order; the compiled code is kept in the browser until the source, or a file loaded before it (one of whose macros it may use), or `react.el` changes.
+There is no build step. The page's `<script type="text/emacs-lisp">` elements (with `src`, or inline) are byte-compiled and run by Emacs in document order; the compiled code is kept in the browser until the source, or a file loaded before it (one of whose macros it may use), or `react.el` changes. A first visit thus compiles in the visitor's browser (about 0.5 s on a fast machine, several seconds on a slow one); a site can compile ahead of time instead, with `node tools/compile.mjs -o compiled.json app.el ...` (in the same Emacs 30.2, under Node, from a wasmacs checkout next to this one) and `<meta name="elisp-react:compiled" content="compiled.json">`: files whose source matches are loaded as they are.
 
 The element above is plain data built with backquote. The `jsx` macro writes the same thing without commas: lists that start with an HTML tag or a Capitalized component name are markup, everything else is Lisp.
 
@@ -74,6 +74,7 @@ A page that starts by itself takes its settings from `<meta>` elements. A page t
 | `wasmacs` | `elisp-react:wasmacs` | Where the wasmacs eval service is published. |
 | `timeout` | `elisp-react:timeout` | Milliseconds Lisp may take to answer an event or an answer from the page (default 30000; 0: no limit). Lisp that takes longer, an endless loop say, cannot be interrupted: Emacs is stopped, the page sends it nothing more, and an error with the symbol `timeout` is reported (`elisp-react:error`, the red box). Long work can give the page back now and then: inside `react-async`, `(react-await (react-sleep 0))` every few hundred items; the limit counts from each such return. |
 | `location` | | `"browser"`: the page's address. `"memory"`: one the host keeps, starting at `/`, with its own history; hash links are followed there. The default is `"browser"`, and `"memory"` where the page has no address (elisp-studio's preview, `about:srcdoc`). |
+| `compiled` | `elisp-react:compiled` | A manifest made by `tools/compile.mjs`: files whose source matches are not compiled in the page. |
 | `cache` | | `false`: compile every file at every start and keep nothing (a development tool's "restart"). |
 | `library`, `sources`, `fetch` | | `react.el`'s URL; Lisp to load instead of the page's scripts; a function to use instead of `fetch` (for development tools). |
 

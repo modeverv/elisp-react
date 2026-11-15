@@ -654,15 +654,18 @@ function compileLog(output) {
 // (the compiler's messages mention it), the compiler's warnings ("" if
 // none), and the hash for the next file.  An error that is thrown carries
 // the file and the log.
-async function loadLisp(emacs, version, name, text, { previous = "", cache = true } = {}) {
+async function loadLisp(emacs, version, name, text, { previous = "", cache = true, manifest = null } = {}) {
   const file = `/tmp/elisp-react/${name.replace(/[^A-Za-z0-9_.-]+/g, "_")}.el`;
   // Compiled code needs the file to say that it uses lexical binding.
   const source = /^.*lexical-binding:/.test(text) ? text : `;;; -*- lexical-binding: t; -*-\n${text}`;
-  const hash = cache ? await sourceHash(`${version}\n${previous}\n${source}`) : null;
+  const hash = cache || manifest ? await sourceHash(`${version}\n${previous}\n${source}`) : null;
   const storageKey = `elisp-react:compiled:${name}`;
+  // Compiled ahead of time (tools/compile.mjs), or kept from a visit before.
+  const ready = hash && manifest?.version === version && manifest.files?.[hash];
   let stored = null;
   let log = "";
-  try { stored = hash && JSON.parse(localStorage.getItem(storageKey) || "null"); } catch (_) { /* compile */ }
+  try { stored = !ready && cache && hash && JSON.parse(localStorage.getItem(storageKey) || "null"); } catch (_) { /* compile */ }
+  if (ready) stored = { hash, code: ready.code, log: ready.log, from: "manifest" };
   try {
     if (stored?.hash === hash) {
       await emacs.eval(`(let ((coding-system-for-write 'no-conversion))
@@ -672,7 +675,7 @@ async function loadLisp(emacs, version, name, text, { previous = "", cache = tru
           (insert (base64-decode-string ${lispString(stored.code)})))
         (load ${lispString(`${file}c`)} nil t)
         nil)`);
-      return { file, log: stored.log || "", hash };
+      return { file, log: stored.log || "", hash, from: stored.from || "kept" };
     }
     // Two steps, so that the compiler's messages are known even when
     // loading the result fails.
@@ -688,14 +691,14 @@ async function loadLisp(emacs, version, name, text, { previous = "", cache = tru
     if (compiled.value) {
       await emacs.eval(`(progn (load ${lispString(`${file}c`)} nil t) nil)`);
       try {
-        if (hash) localStorage.setItem(storageKey, JSON.stringify({ hash, code: compiled.value, log }));
+        if (hash && cache) localStorage.setItem(storageKey, JSON.stringify({ hash, code: compiled.value, log }));
       } catch (_) { /* full: compile next time */ }
-      return { file, log, hash };
+      return { file, log, hash, from: "compiled" };
     }
     // It does not compile: evaluate it, so that the error is the program's.
     console.warn(`[elisp-react] ${name} could not be byte-compiled; evaluating it instead`);
     await emacs.eval(`${text}\nnil`);
-    return { file, log, hash };
+    return { file, log, hash, from: "evaluated" };
   } catch (error) {
     error.message = `${name}: ${error.message}`;
     error.file = file;
@@ -738,6 +741,9 @@ function reportError(error) {
  *             <script type="text/emacs-lisp"> elements
  *   fetch     a function to use instead of the browser's fetch for
  *             `react-fetch' (a development tool answers some URLs itself)
+ *   compiled  URL of a manifest made by tools/compile.mjs (default: <meta
+ *             name="elisp-react:compiled">): files whose hash is in it are
+ *             not compiled in the page
  *   cache     false: compile every file at every start, and keep nothing
  *             (default true: compiled code is kept in localStorage)
  *   location  "browser": the page's address; "memory": one kept by the host
@@ -756,7 +762,8 @@ function reportError(error) {
  */
 export async function start({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.el", import.meta.url), sources = null,
                               fetch: fetchFunction = (...args) => fetch(...args), timeout = lispTimeout(),
-                              location: locationMode = "auto", cache = true } = {}) {
+                              location: locationMode = "auto", cache = true,
+                              compiled = document.querySelector('meta[name="elisp-react:compiled"]')?.content } = {}) {
   const { createEmacsEvalService } = await import(new URL("app/src/emacs-eval-client.js", wasmacs).href);
   const emacs = createEmacsEvalService({ onOutput: (text) => console.log(`[emacs] ${text.trimEnd()}`) });
 
@@ -802,8 +809,14 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
         : { name: `${location.pathname} inline script ${index + 1}`, text: script.textContent }
     )));
   }
-  const [info, libraryText] = await Promise.all([emacs.ready, fetchText(library)]);
-  let previous = (await loadLisp(emacs, info.version, new URL(library, location.href).href, libraryText, { cache })).hash;
+  const [info, libraryText, manifest] = await Promise.all([
+    emacs.ready, fetchText(library),
+    // Without it (missing, broken) the page compiles, as it would anyway.
+    compiled ? fetch(new URL(compiled, location.href)).then((response) => (response.ok ? response.json() : null)).catch(() => null) : null,
+  ]);
+  const first = await loadLisp(emacs, info.version, new URL(library, location.href).href, libraryText, { cache, manifest });
+  const compileLogs = [];
+  let previous = first.hash;
   await emacs.call("react--storage-load", storedEntries());
   await emacs.call("react--location-set", address.describe());
   started = true;
@@ -814,11 +827,10 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
     if (stopped || event.storageArea !== localStorage || !event.key?.startsWith(prefix)) return;
     apply(emacs.call("react--storage-changed", event.key.slice(prefix.length), event.newValue), "a change in another tab");
   });
-  const compileLogs = [];
   for (const source of sources) {
-    const loaded = await loadLisp(emacs, info.version, source.name, source.text, { previous, cache });
+    const loaded = await loadLisp(emacs, info.version, source.name, source.text, { previous, cache, manifest });
     previous = loaded.hash;
-    compileLogs.push({ name: source.name, file: loaded.file, log: loaded.log });
+    compileLogs.push({ name: source.name, file: loaded.file, log: loaded.log, from: loaded.from });
   }
   dom.apply(await emacs.call("react-flush"));
   return {
@@ -856,8 +868,11 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
       await emacs.eval(`${text}\nnil`);
       dom.apply(await emacs.call("react-flush"));
     },
-    // What the compiler said about the files loaded at the start:
-    // [{ name, file, log }].
+    // What the compiler said about the page's files loaded at the start,
+    // and where their code came from ("manifest", "kept", "compiled",
+    // "evaluated"): [{ name, file, log, from }].  library: the same for
+    // react.el.
+    library: { file: first.file, log: first.log, from: first.from },
     compileLogs,
   };
 }

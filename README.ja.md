@@ -38,7 +38,7 @@ Emacs Lisp で書いた React です。
 (react-mount '(counter (:start 3)) "#app")
 ```
 
-ビルドは不要です。ページ内の `<script type="text/emacs-lisp">`（`src` 指定でもインラインでも可）を、Emacs が文書の順にバイトコンパイルして実行します。コンパイル結果は、そのソースか、それより前に読み込まれるファイル（そのマクロを使っているかもしれません）か、`react.el` が変わるまで、ブラウザに保存されます。
+ビルドは不要です。ページ内の `<script type="text/emacs-lisp">`（`src` 指定でもインラインでも可）を、Emacs が文書の順にバイトコンパイルして実行します。コンパイル結果は、そのソースか、それより前に読み込まれるファイル（そのマクロを使っているかもしれません）か、`react.el` が変わるまで、ブラウザに保存されます。そのため初回の訪問では閲覧者のブラウザでコンパイルします（速い機械で約0.5秒、遅い機械では数秒）。サイトは前もってコンパイルしておくこともできます: `node tools/compile.mjs -o compiled.json app.el ...`（同じ Emacs 30.2 を Node で動かします。隣に wasmacs のチェックアウトが要ります）と `<meta name="elisp-react:compiled" content="compiled.json">`。ソースが一致するファイルは、そのまま読み込まれます。
 
 上の要素は、バッククォートで作ったただのデータです。`jsx` マクロを使うと、同じものをカンマなしで書けます。HTML タグか大文字で始まるコンポーネント名で始まるリストがマークアップで、それ以外はすべて Lisp として評価されます。
 
@@ -74,6 +74,7 @@ Emacs Lisp で書いた React です。
 | `wasmacs` | `elisp-react:wasmacs` | wasmacs の eval service が公開されている場所。 |
 | `timeout` | `elisp-react:timeout` | イベントやページからの答えに Lisp が答えるまでに待つミリ秒（既定 30000。0 で無制限）。それより長くかかる Lisp（たとえば無限ループ）は中断できないので、Emacs を止め、ページはそれ以後何も送らず、シンボル `timeout` のエラーを報告します（`elisp-react:error` と赤い帯）。長い処理は途中でページに戻れます。`react-async` の中で数百件ごとに `(react-await (react-sleep 0))` を入れると、制限はその戻りごとに数え直されます。 |
 | `location` | | `"browser"` はページのアドレス。`"memory"` はホストが持つアドレスで、`/` から始まり、履歴も持ち、ハッシュのリンクもそこでたどります。既定は `"browser"` で、ページにアドレスが無いとき（elisp-studio のプレビュー、`about:srcdoc`）は `"memory"` です。 |
+| `compiled` | `elisp-react:compiled` | `tools/compile.mjs` で作ったマニフェスト。ソースが一致するファイルは、ページの中でコンパイルしません。 |
 | `cache` | | `false` にすると、起動のたびにすべてのファイルをコンパイルし、何も保存しません（開発用ツールの「再起動」）。 |
 | `library`、`sources`、`fetch` | | `react.el` の URL、ページのスクリプトの代わりに読み込む Lisp、`fetch` の代わりに使う関数（開発用ツール向け）。 |
 
