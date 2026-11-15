@@ -151,7 +151,8 @@ Lisp はページに応答している間しか動きません。待つことも
 | `(react-event-source URL :on-message F :events NAMES :on-open F :on-error F :on-close F)` | サーバー送信イベント。`:on-message` は `(:type "message" :data "..." :id ...)` を受け取り、`:events` に並べた名前付きのイベントも同じように受け取ります。切れてもブラウザがつなぎ直し、`:on-close` はブラウザがあきらめたことを表します。`react-cancel` で閉じます。 |
 | `(react-storage-get KEY [DEFAULT])`、`(react-storage-set KEY VALUE)`、`(react-storage-remove KEY)` | ページの `localStorage` です。印字できる Lisp データなら何でも保存できます。読み出しは即座に返ります（起動時にホストが Lisp に写しを渡します）。`react-storage-set` は値を置き換えます。同じページの別のタブがその間に保存したものも置き換えます。 |
 | `(react-storage-watch KEY F)`、`(react-storage-unwatch HANDLE)` | 同じページの別のタブが `KEY` を変えたとき、Lisp の写しは新しい値になり、`F` がそれを受け取ります（消されたときは nil）。タブ間でリストを共有するなら、書く前にマージするか、描き直します。 |
-| 要素の `:ref "name"`、`(react-focus SELF "name")`、`(react-invoke SELF "name" METHOD)` | コンポーネントが描画した要素の DOM ノードに対して `focus`、`blur`、`select`、`click`、`scrollIntoView` を呼びます。その描画の DOM 変更のあとに実行されます（`:did-update` か `:did-mount` の中で使います）。 |
+| 要素の `:ref "name"`、`(react-focus SELF "name")`、`(react-invoke SELF "name" METHOD ARGS...)` | コンポーネントが描画した要素の DOM ノードのメソッドを呼びます。その描画の DOM 変更のあとに実行されます（`:did-update` か `:did-mount` の中で使います）。呼べるのは `focus`、`blur`、`select`、`click`、`scrollIntoView`、`scrollTo`、`scrollBy`、`setSelectionRange`、`showModal`、`show`、`close`、`requestSubmit`、`reset`、`reportValidity`、`setCustomValidity`、`play`、`pause`、`load`、`requestFullscreen`、`showPicker` です。引数は JSON のデータです: `(react-invoke self "list" "scrollTo" '(:top 0))`。 |
+| `(react-set-property SELF "name" PROPERTY VALUE)`、`(react-measure SELF "name" F)` | 属性ではない DOM プロパティを設定します: `indeterminate`、`selectedIndex`、`open`、`muted`、`volume`、`currentTime`、`playbackRate`、`loop`、`scrollTop`、`scrollLeft`（マークアップを受け取るものはありません）。ノードを測ります: `F` は箱 `(:x :y :width :height)`、スクロール（`:scrollTop` から `:clientHeight`）、音声と動画なら `:currentTime :duration :paused` を受け取ります。 |
 
 ホストにできないことも、ページ自身のスクリプトならでき、両者は話せます。
 

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>imperative DOM</title>
+<style>.list { height: 100px; width: 200px; overflow: auto; } .list div { height: 500px; }</style>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Imperative
+  :initial-state (lambda (_props) (list :measured ""))
+  :did-mount
+  (lambda (self)
+    (react-set-property self "box" "indeterminate" t)
+    (react-invoke self "field" "setSelectionRange" 1 3)
+    (react-invoke self "list" "scrollTo" '(:top 120))
+    (react-invoke self "dialog" "showModal")
+    ;; Not allowed: markup through a property.
+    (react--emit "prop" (react--host-dom-id (react-ref self "field")) "innerHTML" "<b>x</b>")
+    (react-measure self "list"
+                   (lambda (box)
+                     (react-set-state self :measured
+                                      (format "%d %d %d" (plist-get box :width) (plist-get box :scrollTop)
+                                              (plist-get box :scrollHeight))))))
+  :render
+  (lambda (self)
+    (jsx (div
+          (input (:ref "box" :class "box" :type "checkbox"))
+          (input (:ref "field" :class "field" :value "abcdef"))
+          (div (:ref "list" :class "list") (div "tall"))
+          (dialog (:ref "dialog" :class "dialog") "modal")
+          (p (:class "measured") (react-state self :measured))))))
+(react-mount '(Imperative) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

@@ -214,6 +214,17 @@ try {
   assert.equal(await text(".seen"), '括弧 ("a" "b")');
   pass("event payload: modifier keys, code, IME composition, button, coordinates, the target node and a form's fields reach Lisp");
 
+  // ---- imperative DOM ---------------------------------------------------------------
+  await open("imperative");
+  await until("document.querySelector('.measured').textContent !== ''", "the list is measured");
+  assert.equal(await text(".measured"), "200 120 500");
+  assert.deepEqual(await js(`(() => {
+    const field = document.querySelector('.field');
+    return [document.querySelector('.box').indeterminate, field.selectionStart, field.selectionEnd,
+            document.querySelector('.dialog').open, document.querySelector('.dialog').matches(':modal'), field.innerHTML];
+  })()`), [true, 1, 3, true, true, ""]);
+  pass("imperative DOM: Lisp sets allowed properties, calls methods with arguments (selection, scrollTo, showModal) and measures a node; innerHTML is refused");
+
   console.log("e2e host passed");
 } finally {
   client?.close();
