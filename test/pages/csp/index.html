@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>strict CSP</title>
+<!-- The policy (meta, so that it applies to the document only) is written by
+     test/e2e-host.mjs with the wasmacs origin: ?csp=... -->
+<script src="csp.js"></script>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp" src="app.el"></script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

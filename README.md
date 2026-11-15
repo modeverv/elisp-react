@@ -200,6 +200,15 @@ What the host cannot do, the page's own script can, and the two can talk:
 
 **An origin is one trust.** `localStorage`, the compiled code kept in it and Emacs in Cache Storage belong to the page's origin, and so does every page of it: any page of an origin can read another's stored values (an API key, a token), change the code another one loads next time, or simply open it in a frame and script it. The storage name and `cache: "session"` keep honest applications apart, not hostile ones. An application that keeps secrets needs an origin of its own, without pages it does not trust; on a shared host such as `USER.github.io` every repository's Pages share one, and so does elisp-studio's in-page studio, which runs whatever project its user opens. A manifest of compiled code (`tools/compile.mjs`) is fetched from the site, not kept in the origin's storage.
 
+**A Content-Security-Policy.** What a page has to allow depends on where Emacs comes from. With wasmacs on another origin (the default, `https://modeverv.github.io/wasmacs/`), this policy runs a page with no violation (tested in `test/e2e-host.mjs`):
+
+```
+default-src 'none'; script-src 'self' WASMACS blob: 'wasm-unsafe-eval'; worker-src WASMACS blob:;
+connect-src 'self' WASMACS; style-src 'self'; img-src 'self' data:
+```
+
+(`WASMACS` is the wasmacs origin; add what the application itself fetches to `connect-src`.) The eval service's worker is started from a `blob:` and compiles WebAssembly, hence `blob:` and `'wasm-unsafe-eval'`. With wasmacs copied to the page's own origin and the policy on the page only (a `<meta>`, or a header on the HTML), `script-src 'self'; worker-src 'self'; connect-src 'self'` is enough. No `'unsafe-inline'` is needed for styles: `:style` is set through CSSOM. Inline scripts of a page (an inline `<script type="text/emacs-lisp">` is data, not script) need their hash. A policy that enforces Trusted Types must allow the policy name `wasmacs-eval`.
+
 Signing in, as far as the page is concerned (tried on 2026-11-15 from Chrome against elisp-studio's project server, a session cookie and a bearer token in one page):
 
 - **Cookies need nothing.** `react-fetch` is the browser's `fetch` with its defaults: a request to the page's own server carries that server's cookies and takes new ones from the answer. A session cookie that is `HttpOnly` never shows up in Lisp. A request to another origin carries no cookies unless it says `:credentials "include"`, and is subject to that server's CORS rules.

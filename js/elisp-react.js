@@ -214,6 +214,9 @@ function createDom(dispatch, host) {
       const element = node(id);
       name = String(name);
       if (value === null || value === false) element.removeAttribute(name);
+      // Through CSSOM, which a Content-Security-Policy without
+      // 'unsafe-inline' styles does not block (setAttribute would be).
+      else if (name === "style" && element.style) element.style.cssText = value === true ? "" : String(value);
       else {
         const text = value === true ? "" : String(value);
         if (isSafeAttribute(name, text) && !isScriptAnimation(element, name, text)) element.setAttribute(name, text);
