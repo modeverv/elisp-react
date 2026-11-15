@@ -509,7 +509,8 @@ and INSTANCE then renders nothing; without one, it is signalled again as
        (react--set-ref mounted nil (plist-get props :ref))
        (let ((plist props))
          (while plist
-           (when (cadr plist) (react--set-prop id (car plist) (cadr plist)))
+           (when (and (cadr plist) (not (memq (car plist) '(:value :checked))))
+             (react--set-prop id (car plist) (cadr plist)))
            (setq plist (cddr plist))))
        (setf (react--host-children mounted)
              (mapcar (lambda (child)
@@ -517,6 +518,9 @@ and INSTANCE then renders nothing; without one, it is signalled again as
                          (react--emit "insert" id (react--dom-id mounted-child) nil)
                          mounted-child))
                      (react--element-children vnode)))
+       ;; After the children: a <select>'s value names one of its options.
+       (dolist (key '(:value :checked))
+         (when (plist-get props key) (react--set-prop id key (plist-get props key))))
        mounted))
     (`(component . ,name)
      (let* ((spec (get name 'react-component))

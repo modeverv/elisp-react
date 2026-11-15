@@ -213,6 +213,15 @@
     (should (equal (react-form-value event "missing") nil))
     (should (equal (react-form-value '(:type "click") "q") nil))))
 
+(ert-deftest react-test-select-value-after-options ()
+  "A controlled <select> gets its value after its options are in it."
+  (react-test--fresh
+    (react-mount '(select (:value "b") (option (:value "a") "A") (option (:value "b") "B")) "#app")
+    (let ((ops (react-test--ops)))
+      (should (member '("prop" 1 "value" "b") ops))
+      (should (< (cl-position '("insert" 1 4 nil) ops :test #'equal)
+                 (cl-position '("prop" 1 "value" "b") ops :test #'equal))))))
+
 (ert-deftest react-test-operations-are-json ()
   "The host receives the operations as JSON."
   (react-test--fresh

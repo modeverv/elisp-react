@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>forms</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Forms
+  :initial-state (lambda (_props) (list :text "" :fruit "b"))
+  :render
+  (lambda (self)
+    ;; A slow render: slower than typing.
+    (let ((end (+ (float-time) 0.06))) (while (< (float-time) end)))
+    (jsx (div
+          (input (:class "slow" :value (react-state self :text)
+                  :on-input (lambda (event) (react-set-state self :text (plist-get event :value)))))
+          (select (:class "fruit" :value (react-state self :fruit))
+                  (option (:value "a") "apple") (option (:value "b") "banana"))
+          (p (:class "text") (react-state self :text))))))
+(react-mount '(Forms) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

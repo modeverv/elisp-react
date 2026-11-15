@@ -146,6 +146,11 @@ function createDom(dispatch, host) {
     };
   };
 
+  // Input events of a node whose answer has not been applied yet: a value
+  // that Lisp sends in the answer to an older event (or a timer) is older
+  // than what the visitor has typed since, and is not written.
+  const inFlight = new Map();   // DOM id -> number of input/change events waiting for Lisp
+  let applying = null;          // { id, seq } of the event whose answer is being applied
   const operations = {
     create(id, tag, namespace) {
       register(id, namespace === "svg" ? document.createElementNS("http://www.w3.org/2000/svg", tag) : document.createElement(tag));
@@ -174,6 +179,7 @@ function createDom(dispatch, host) {
       }
       const element = node(id);
       const next = ["checked", "indeterminate", "open", "muted", "loop"].includes(name) ? Boolean(value) : value ?? "";
+      if (name === "value" && (inFlight.get(id) || 0) > (applying?.id === id ? 1 : 0)) return;
       if (element[name] !== next) element[name] = next;
     },
     // OPTIONS (from `react-handler'), decided here because Lisp answers
@@ -187,7 +193,12 @@ function createDom(dispatch, host) {
       if (old) operations.unlisten(id, name);
       const { keys, self, prevent, stop, capture, passive, throttle } = options || {};
       let last = 0, trailing = null;
-      const send = (event) => { last = performance.now(); dispatch(id, name, describe(event)); };
+      const send = (event) => {
+        last = performance.now();
+        const typed = name === "input" || name === "change";
+        if (typed) inFlight.set(id, (inFlight.get(id) || 0) + 1);
+        dispatch(id, name, describe(event), typed ? id : null);
+      };
       const listener = (event) => {
         if (keys?.length && !keys.includes(event.key)) return;
         if (self && event.target !== event.currentTarget) return;
@@ -243,13 +254,23 @@ function createDom(dispatch, host) {
   };
 
   return {
-    apply(ops) {
-      for (const [name, ...args] of ops || []) {
-        const operation = operations[name];
-        if (!operation) throw new Error(`elisp-react: unknown DOM operation ${name}`);
-        operation(...args);
+    // Apply OPS, the answer to an input or change event of the node FROM
+    // (a DOM id) when given.
+    apply(ops, from = null) {
+      applying = from === null ? null : { id: from };
+      try {
+        for (const [name, ...args] of ops || []) {
+          const operation = operations[name];
+          if (!operation) throw new Error(`elisp-react: unknown DOM operation ${name}`);
+          operation(...args);
+        }
+      } finally {
+        if (from !== null) inFlight.set(from, Math.max(0, (inFlight.get(from) || 1) - 1));
+        applying = null;
       }
     },
+    // The answer to an input event of FROM failed: it waits no more.
+    settled(from) { if (from !== null) inFlight.set(from, Math.max(0, (inFlight.get(from) || 1) - 1)); },
     nodeCount: () => nodes.size,
   };
 }
@@ -692,7 +713,7 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   // A request that is not answered within TIMEOUT (an endless loop in a
   // handler: the worker cannot be interrupted) stops the service, so that
   // the page does not look alive while nothing reacts.
-  const apply = (answer, what, done = () => {}, failed = () => {}) => {
+  const apply = (answer, what, done = () => {}, failed = () => {}, from = null) => {
     const timer = timeout > 0 && setTimeout(() => {
       if (stopped) return;
       stopped = true;
@@ -702,13 +723,13 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
       error.symbol = "timeout";
       reportError(error);
     }, timeout);
-    answer.then((ops) => { clearTimeout(timer); if (!stopped) dom.apply(ops); done(); })
-      .catch((error) => { clearTimeout(timer); if (!stopped) reportError(error); failed(error); });
+    answer.then((ops) => { clearTimeout(timer); if (!stopped) dom.apply(ops, from); done(); })
+      .catch((error) => { clearTimeout(timer); dom.settled(from); if (!stopped) reportError(error); failed(error); });
   };
   // Events are answered in the order they happened: the service works on one
   // request at a time, and each answer is applied before the next arrives.
-  const dispatch = (id, name, event) => {
-    if (!stopped) apply(emacs.call("react-dispatch-event", id, name, event), `the ${name} event`);
+  const dispatch = (id, name, event, from = null) => {
+    if (!stopped) apply(emacs.call("react-dispatch-event", id, name, event), `the ${name} event`, undefined, undefined, from);
   };
   // Lisp hears of a new address after the DOM changes it is part of.
   let started = false;
