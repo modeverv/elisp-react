@@ -219,7 +219,7 @@ By default a component renders again whenever its parent does. A component can d
 | `:pure t` | Render only when a prop or the state changed: strings and numbers by value, everything else (records, lists, functions) by identity. |
 | `(react-changed-p NEW OLD :key ...)`, `(react-shallow-equal A B)` | For `:should-update`: compare selected keys of two plists, or all of them. |
 
-A `lambda` in a render function is a new object at every render, so a function prop defeats `:pure`. Compare the data props with `react-changed-p` instead, and let handlers read function props when the event happens (`(funcall (react-props self :on-change) ...)`): a skipped component still receives its new props.
+A `lambda` in a render function is a new object at every render, but `:pure` takes two closures of the same `lambda` for the same function when the values they captured are the same (compared one level deep): `(VideoCard (:on-pick (lambda (_event) (pick video))))` skips its render as long as `video` is the same object. A closure that captures something new at every render (a list built in the render) still defeats it; then compare the data props with `react-changed-p`, and let handlers read function props when the event happens (`(funcall (react-props self :on-change) ...)`): a skipped component still receives its new props.
 
 Children of a list that changes get a `:key`: `(li (:key id) ...)`. A child with the same key as before is the same child: it keeps its DOM node, and the components in it keep their state, wherever it now stands in the list. The reconciler moves as few nodes as possible. Children without a key are matched by position.
 

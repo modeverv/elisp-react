@@ -828,12 +828,51 @@ Several changes during one event cause one render."
   "Non-nil if the prop or state values A and B are the same.
 Strings and numbers are compared by value, everything else by identity:
 a record or a list that was not replaced is the same, a new one is not
-\(state is changed by building new values, never in place).  Functions
-are the same only if they are the same object: a `lambda' in a render
-function makes a new one every time."
+\(state is changed by building new values, never in place).  Two
+closures of the same `lambda' (one in a render function makes a new one
+every time) are the same when the values they captured are the same."
+  (or (eq a b)
+      (and (stringp a) (stringp b) (string= a b))
+      (and (numberp a) (numberp b) (= a b))
+      (and (functionp a) (functionp b) (react--same-closure-p a b))))
+
+(defun react--same-atom-p (a b)
   (or (eq a b)
       (and (stringp a) (stringp b) (string= a b))
       (and (numberp a) (numberp b) (= a b))))
+
+(defun react--same-closure-p (a b)
+  "Non-nil if A and B are closures of the same code over the same values.
+Captured values are compared one level deep (`eq', `string=', `='), so
+that captured instances and trees are never walked."
+  (cond
+   ;; Byte-compiled: the code is shared, the captured values are the first
+   ;; constants.
+   ((and (byte-code-function-p a) (byte-code-function-p b))
+    (and (= (length a) (length b))
+         (equal (aref a 0) (aref b 0))
+         (eq (aref a 1) (aref b 1))
+         (let ((ca (aref a 2)) (cb (aref b 2)))
+           (and (= (length ca) (length cb))
+                (cl-every #'react--same-atom-p ca cb)))))
+   ;; Interpreted, Emacs 30 and later: arguments, body, environment.
+   ((and (fboundp 'interpreted-function-p)
+         (funcall 'interpreted-function-p a) (funcall 'interpreted-function-p b))
+    (and (eq (aref a 0) (aref b 0)) (eq (aref a 1) (aref b 1))
+         (react--same-environment-p (aref a 2) (aref b 2))))
+   ;; Interpreted, Emacs 29: (closure ENVIRONMENT ARGUMENTS . BODY).
+   ((and (eq (car-safe a) 'closure) (eq (car-safe b) 'closure))
+    (and (eq (cddr a) (cddr b))
+         (react--same-environment-p (cadr a) (cadr b))))))
+
+(defun react--same-environment-p (a b)
+  "Non-nil if the lexical environments A and B bind the same values."
+  (and (= (length a) (length b))
+       (cl-every (lambda (x y)
+                   (if (and (consp x) (consp y))
+                       (and (eq (car x) (car y)) (react--same-atom-p (cdr x) (cdr y)))
+                     (eq x y)))
+                 a b)))
 
 (defun react-shallow-equal (a b)
   "Non-nil if the plists A and B have the same keys with the same values.

@@ -749,6 +749,35 @@
       (should (react-changed-p '(:a 1 :b (x)) '(:a 1 :b (x)) :b))
       (should-not (react-changed-p '(:a 1 :b 2 :f ignore) '(:a 1 :b 2 :f car) :a :b)))))
 
+(ert-deftest react-test-pure-with-lambda-props ()
+  "A lambda made anew at each render does not defeat :pure."
+  (react-test--fresh
+    (let ((renders 0) app
+          (make (byte-compile (lambda (item) (lambda (_event) item)))))
+      (react-define-component 'react-test-pure-row
+        :pure t
+        :render (lambda (self) (cl-incf renders) `(button (:on-click ,(react-props self :on-pick)) "x")))
+      (react-define-component 'react-test-rows
+        :initial-state (lambda (_props) (list :n 0 :item "a"))
+        :render (lambda (self)
+                  (setq app self)
+                  (let ((item (react-state self :item)))
+                    `(div ()
+                          ;; interpreted closure over ITEM
+                          (react-test-pure-row (:on-pick ,(lambda (_event) item)))
+                          ;; compiled closure over ITEM
+                          (react-test-pure-row (:on-pick ,(funcall make item)))))))
+      (react-mount '(react-test-rows) "#app")
+      (react-flush)
+      (should (= renders 2))
+      (react-set-state app :n 1)               ; the rows' closures capture the same item
+      (react-flush)
+      (should (= renders 2))
+      (react-set-state app :item "b")          ; now they capture another one
+      (react-flush)
+      (should (= renders 4)))
+    (should-not (react--same-value-p (lambda () 1) (lambda () 2)))))
+
 (ert-deftest react-test-should-update-keeps-new-props ()
   "A skipped component still has its new props: handlers that read props late see them."
   (react-test--fresh
