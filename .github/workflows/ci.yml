@@ -29,6 +29,8 @@ jobs:
         run: |
           emacs --version | head -1
           test/run-ert.sh
+      - name: Test native server file boundaries
+        run: npm run test:server-security
 
   # The site is the repository itself: static files, no build step.
   pages:
