@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Test DOM attribute boundaries
+        run: npm run test:dom
       - name: Test static file boundaries
         run: npm run test:static
       - name: Install Emacs

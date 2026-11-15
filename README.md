@@ -159,7 +159,7 @@ A `lambda` in a render function is a new object at every render, so a function p
 
 Children of a list that changes get a `:key`: `(li (:key id) ...)`. A child with the same key as before is the same child: it keeps its DOM node, and the components in it keep their state, wherever it now stands in the list. The reconciler moves as few nodes as possible. Children without a key are matched by position.
 
-Props of DOM elements: `:on-click`, `:on-input`, `:on-submit`, ... are listeners (the function gets a plist `:type :value :checked :key`, and for a file input `:files`, a vector of `(:name :size :type)`); `:value` and `:checked` are DOM properties, so inputs are controlled; `:style` is a string or a plist; everything else is an attribute (`nil` removes it, `t` sets it empty).
+Props of DOM elements: `:on-click`, `:on-input`, `:on-submit`, ... are listeners (the function gets a plist `:type :value :checked :key`, and for a file input `:files`, a vector of `(:name :size :type)`); `:value` and `:checked` are DOM properties, so inputs are controlled; `:style` is a string or a plist; everything else is an attribute (`nil` removes it, `t` sets it empty). The host omits inline `on*` attributes and `srcdoc`, and removes script URLs in URL attributes, while continuing the render. Use Lisp `:on-...` callbacks. Page-authored Lisp and deliberately created script elements remain trusted code; see [the DOM boundary](doc/design.md#operations).
 
 ## Changing a running page
 

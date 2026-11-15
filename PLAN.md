@@ -9,11 +9,13 @@ configuration are trusted code. Reproductions use temporary synthetic data.
 - [x] #1: confine development static serving to public files inside its root
   (PR #4 merged as `3622430`, GitHub CI succeeded).
 - [x] #2: prevent native static routes from exposing persisted notes or hidden files
-  (implemented and locally validated; PR CI/merge pending).
-- [ ] #3: prevent ordinary DOM attributes from turning input data into script.
+  (PR #5 merged as `5e31ad7`, GitHub CI succeeded).
+- [x] #3: prevent ordinary DOM attributes from turning input data into script
+  (implemented and validated in this change).
 
 Each confirmed issue gets its own branch and PR, regression coverage, an
 independent review, passing checks, and a merge before the next fix starts.
+GitHub issues and their linked PRs record the final merge/check status.
 
 ## Validation
 
@@ -32,6 +34,13 @@ independent review, passing checks, and a merge before the next fix starts.
   Independent review additionally reproduced NFC/NFD filename aliases for
   backups with a missing original on APFS; existing backup-file identities
   now enforce that boundary without conflating distinct Linux filenames.
+- #3: `npm test` passed: DOM policy 3/3, both HTTP suites 9/9 each, ERT
+  33/33, Chrome examples including the real Lisp-to-DOM attack regressions,
+  and native-server/Chrome integration. The new browser check fails against
+  the original renderer. With the fix, markers never execute, rejected
+  updates remove old attributes, and normal links, callbacks, text, data
+  images and subsequent renders continue. The host remains a single JS file
+  for compatibility with applications that copy it during export.
 - Run the focused security regression tests added with each fix.
 - Run `npm test` for the integrated native Emacs and real Chrome examples.
 - Check PR CI and the merged default-branch revision on GitHub.
