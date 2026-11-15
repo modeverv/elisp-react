@@ -574,6 +574,23 @@
     (should (equal (react-storage-get "filter") 'active))
     (should (equal (react-storage-get "todos") nil))))
 
+(ert-deftest react-test-storage-from-another-tab ()
+  "A value stored by another tab reaches this tab's copy and its watchers."
+  (react-test--fresh
+    (react--storage-load [["later" "(\"a\")"]])
+    (let (seen handle)
+      (setq handle (react-storage-watch "later" (lambda (value) (push value seen))))
+      (react--storage-changed "later" "(\"b\" \"a\")")
+      (should (equal (react-storage-get "later") '("b" "a")))
+      (react--storage-changed "later" nil)
+      (should (equal (react-storage-get "later" 'none) 'none))
+      (should (equal seen '(nil ("b" "a"))))
+      (react-storage-unwatch handle)
+      (react--storage-changed "later" "1")
+      (should (equal (length seen) 2))
+      ;; Nothing is told back to the page: the other tab already stored it.
+      (should (equal (react-test--find "tell" (react-test--ops)) nil)))))
+
 (ert-deftest react-test-interval-follows-the-component ()
   "A clock starts its interval when mounted and stops it when unmounted."
   (react-test--fresh

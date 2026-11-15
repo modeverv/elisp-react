@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>storage in two tabs</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Later
+  :initial-state (lambda (_props) (list :items (react-storage-get "later")))
+  :did-mount (lambda (self)
+               (react-storage-watch "later" (lambda (items) (react-set-state self :items items))))
+  :render
+  (lambda (self)
+    (jsx (div
+          (button (:class "add"
+                   :on-click (lambda (_event)
+                               ;; Merge with what another tab may have stored.
+                               (let ((items (cons (format "item %d" (1+ (length (react-storage-get "later"))))
+                                                  (react-storage-get "later"))))
+                                 (react-storage-set "later" items)
+                                 (react-set-state self :items items))))
+                  "add")
+          (p (:class "items") (string-join (react-state self :items) ", "))))))
+(react-mount '(Later) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

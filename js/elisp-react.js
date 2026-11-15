@@ -495,6 +495,13 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   const [info, libraryText] = await Promise.all([emacs.ready, fetchText(library)]);
   await loadLisp(emacs, info.version, new URL(library, location.href).href, libraryText);
   await emacs.call("react--storage-load", storedEntries());
+  // Another tab of this page stored or removed a value: Lisp's copy follows,
+  // and the functions watching that key run.
+  addEventListener("storage", (event) => {
+    const prefix = storagePrefix();
+    if (stopped || event.storageArea !== localStorage || !event.key?.startsWith(prefix)) return;
+    apply(emacs.call("react--storage-changed", event.key.slice(prefix.length), event.newValue), "a change in another tab");
+  });
   const compileLogs = [];
   for (const source of sources) {
     compileLogs.push({ name: source.name, ...(await loadLisp(emacs, info.version, source.name, source.text)) });

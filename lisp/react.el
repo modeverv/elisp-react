@@ -994,6 +994,31 @@ conditionals may contain awaits; an `unwind-protect' cleanup form and a
   (mapc (lambda (entry) (puthash (aref entry 0) (aref entry 1) react--storage)) entries)
   nil)
 
+(defvar react--storage-watchers (make-hash-table :test #'equal)
+  "Key -> functions to call when another tab changes the stored value.")
+
+(defun react--storage-changed (key text)
+  "Another tab stored TEXT under KEY (nil: removed it).
+Returns the DOM operations that follow."
+  (if text (puthash key text react--storage) (remhash key react--storage))
+  (dolist (function (gethash key react--storage-watchers))
+    (funcall function (react-storage-get key)))
+  (react-flush))
+
+(defun react-storage-watch (key function)
+  "Call FUNCTION with the new value when another tab changes KEY.
+The value is nil when the other tab removed it.  Use it to merge what
+the other tab stored, or to render again.  Returns a handle for
+`react-storage-unwatch' (in :will-unmount)."
+  (push function (gethash key react--storage-watchers))
+  (cons key function))
+
+(defun react-storage-unwatch (handle)
+  "Stop the watcher HANDLE that `react-storage-watch' returned."
+  (puthash (car handle) (delq (cdr handle) (gethash (car handle) react--storage-watchers))
+           react--storage-watchers)
+  nil)
+
 (defun react-storage-get (key &optional default)
   "The Lisp value stored under KEY in the page's localStorage, or DEFAULT."
   (let ((text (gethash key react--storage)))
@@ -1002,7 +1027,10 @@ conditionals may contain awaits; an `unwind-protect' cleanup form and a
       default)))
 
 (defun react-storage-set (key value)
-  "Store the Lisp VALUE under KEY in the page's localStorage."
+  "Store the Lisp VALUE under KEY in the page's localStorage.
+VALUE replaces what is there, also what another tab of the page stored
+since this one read it: watch the key (`react-storage-watch') and merge
+before writing when tabs share a list."
   (let ((text (let ((print-length nil) (print-level nil)) (prin1-to-string value))))
     (unless (equal text (gethash key react--storage))
       (puthash key text react--storage)
@@ -1026,6 +1054,7 @@ conditionals may contain awaits; an `unwind-protect' cleanup form and a
   (clrhash react--roots)
   (clrhash react--requests)
   (clrhash react--storage)
+  (clrhash react--storage-watchers)
   nil)
 
 (defun react--html (mounted)

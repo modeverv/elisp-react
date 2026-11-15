@@ -99,6 +99,23 @@ try {
   assert.deepEqual(log.filter((line) => line.startsWith("ws")), ["ws open", "ws echo: hello", "ws close 1000 done"]);
   pass("realtime: server-sent events (named ones too), a WebSocket's messages and its closing reach Lisp");
 
+  // ---- storage in two tabs --------------------------------------------------------
+  await open("storage-tabs");
+  await js("localStorage.clear(); true");
+  await open("storage-tabs");
+  const other = await client.send("Target.createTarget", { url: `${site.origin}/test/pages/storage-tabs/${wasmacsQuery}` });
+  const { sessionId: otherSession } = await client.send("Target.attachToTarget", { targetId: other.targetId, flatten: true });
+  await client.send("Runtime.enable", {}, otherSession);
+  const otherJs = (expression) => evaluate(client, otherSession, expression);
+  await waitUntil(() => otherJs("window.elispReact?.ready.then(() => true)").catch(() => false), "the second tab is up");
+  await click(".add");
+  await waitUntil(() => otherJs("document.querySelector('.items').textContent === 'item 1'"), "the second tab sees the first tab's item");
+  await otherJs("document.querySelector('.add').click(); true");
+  await until("document.querySelector('.items').textContent === 'item 2, item 1'", "the first tab sees the merge");
+  assert.equal(await js("localStorage.getItem('elisp-react:/test/pages/storage-tabs/:later')"), '("item 2" "item 1")');
+  await client.send("Target.closeTarget", { targetId: other.targetId });
+  pass("storage: a value stored in another tab reaches Lisp (react-storage-watch), so tabs merge instead of losing entries");
+
   console.log("e2e host passed");
 } finally {
   client?.close();
