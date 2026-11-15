@@ -89,6 +89,8 @@ Emacs Lisp で書いた React です。
 </script>
 ```
 
+**時間の計測。** ホストは User Timing の計測を記録します。DevTools の Performance パネルに表示され、`PerformanceObserver` で集められます。`elisp-react:request` は Lisp への要求ごと（`detail` は何の要求か、返ってきた DOM 操作の数、往復の時間、適用の時間）、`elisp-react:lisp:FILE` は起動時に読み込んだファイルごと（`detail.from` は前もってコンパイル済み、保存済み、その場でコンパイル）、それに `elisp-react:start` です。
+
 ## 両側が Emacs
 
 `examples/server/` は、独自の JavaScript もビルドもないアプリケーションです。ネイティブの Emacs プロセスが Web サーバーになってデータを持ち、ブラウザの中の Emacs がページを描画します。両者は JSON ではなく、印字した Lisp データをやり取りします。

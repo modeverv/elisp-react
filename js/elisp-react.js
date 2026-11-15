@@ -866,6 +866,7 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
                               compiled = document.querySelector('meta[name="elisp-react:compiled"]')?.content } = {},
               hooks = { progress() {} }) {
   storageName = storage;
+  const startedAt = performance.now();
   const clientUrl = new URL("app/src/emacs-eval-client.js", wasmacs).href;
   let createEmacsEvalService;
   try {
@@ -895,8 +896,15 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
     replies = [];
     apply(emacs.call("react-host-replies", batch), batch.length === 1 ? "an answer from the page" : `${batch.length} answers from the page`);
   };
+  // Each request is measured (performance.measure "elisp-react:request",
+  // detail { what, ops, roundTripMs, applyMs }): the round trip to Lisp, how many DOM
+  // operations came back, and how long applying them took.
+  const measure = (name, start, detail) => {
+    try { performance.measure(name, { start, end: performance.now(), detail }); } catch (_) { /* no User Timing */ }
+  };
   const apply = (answer, what, done = () => {}, failed = () => {}, from = null) => {
     busy += 1;
+    const sent = performance.now();
     const settled = () => { busy -= 1; if (busy === 0) sendReplies(); };
     const timer = timeout > 0 && setTimeout(() => {
       if (stopped) return;
@@ -907,7 +915,13 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
       error.symbol = "timeout";
       reportError(error);
     }, timeout);
-    answer.then((ops) => { clearTimeout(timer); if (!stopped) dom.apply(ops, from); done(); })
+    answer.then((ops) => {
+      clearTimeout(timer);
+      const received = performance.now();
+      if (!stopped) dom.apply(ops, from);
+      measure("elisp-react:request", sent, { what, ops: ops?.length ?? 0, roundTripMs: received - sent, applyMs: performance.now() - received });
+      done();
+    })
       .catch((error) => { clearTimeout(timer); dom.settled(from); if (!stopped) reportError(error); failed(error); })
       .finally(settled);
   };
@@ -942,7 +956,13 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
     // Without it (missing, broken) the page compiles, as it would anyway.
     compiled ? fetch(new URL(compiled, location.href)).then((response) => (response.ok ? response.json() : null)).catch(() => null) : null,
   ]);
-  const first = await loadLisp(emacs, info.version, new URL(library, location.href).href, libraryText, { cache, manifest });
+  const loadMeasured = async (name, text, options) => {
+    const begun = performance.now();
+    const loaded = await loadLisp(emacs, info.version, name, text, options);
+    measure(`elisp-react:lisp:${name}`, begun, { from: loaded.from });
+    return loaded;
+  };
+  const first = await loadMeasured(new URL(library, location.href).href, libraryText, { cache, manifest });
   hooks.progress({ phase: "lisp", url: new URL(library, location.href).href, from: first.from });
   const compileLogs = [];
   let previous = first.hash;
@@ -962,12 +982,13 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
     apply(emacs.call("react--storage-changed", event.key.slice(prefix.length), event.newValue), "a change in another tab");
   });
   for (const source of sources) {
-    const loaded = await loadLisp(emacs, info.version, source.name, source.text, { previous, cache, manifest });
+    const loaded = await loadMeasured(source.name, source.text, { previous, cache, manifest });
     hooks.progress({ phase: "lisp", url: source.name, from: loaded.from });
     previous = loaded.hash;
     compileLogs.push({ name: source.name, file: loaded.file, log: loaded.log, from: loaded.from });
   }
   dom.apply(await emacs.call("react-flush"));
+  measure("elisp-react:start", startedAt, { bootMs: info.bootMs, cached: info.cached });
   return {
     emacs, dom, version: info.version, bootMs: info.bootMs, cached: info.cached, files: info.files,
     // Evaluate changed source while the page runs (a development tool).
