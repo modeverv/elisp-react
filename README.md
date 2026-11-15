@@ -170,6 +170,13 @@ The same asynchronous code can be written top to bottom. `react-async` runs its 
 | `(react-async BODY...)`, `(react-await AWAITABLE)` | Loops and conditionals may contain awaits. A failed operation signals `react-async-error` at the await. Read state again after an await: it may have changed. |
 | `(react-sleep MS)`, `(react-fetch-async URL OPTIONS...)` (those of `react-fetch` but `:then` and `:catch`) | Awaitables. Any function of `(RESOLVE REJECT)` that calls one of them once is an awaitable. |
 
+Data that several components or several visits of a page read is kept by key:
+
+| | |
+|---|---|
+| `(react-query SELF KEY LOADER :stale-ms MS)` | In a render: the data under `KEY` (any Lisp data, compared with `equal`), loaded by `LOADER`, a function that returns an awaitable (`(lambda () (react-fetch-async "/videos.json"))`). Returns `(:status STATUS :data DATA :error ERROR :fetching BOOL)`, `STATUS` being `loading`, `success` or `error`. Components that ask for one key share its request and its data; a component that comes back shows the data at once, and a key older than `:stale-ms` (default 0) is loaded again in the background. The component renders again when the data arrives, `:pure` or not. |
+| `(react-invalidate PREFIX)`, `(react-query-set KEY DATA)`, `(react-query-data KEY)` | Make every key that is `PREFIX`, or a list that starts with the list `PREFIX`, stale: it is loaded again, and an answer on its way is dropped. Put data under a key by hand (an optimistic update). Read a key without depending on it. |
+
 By default a component renders again whenever its parent does. A component can decline:
 
 | | |

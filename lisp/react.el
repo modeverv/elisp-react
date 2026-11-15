@@ -215,11 +215,16 @@ children reach the component as the prop :children."
   (react--each-instance
    (lambda (instance)
      (when (eq (react--instance-type instance) name)
-       (setf (react--instance-spec instance) spec
-             (react--instance-force instance) t)
-       (unless (react--instance-dirty instance)
-         (setf (react--instance-dirty instance) t)
-         (push instance react--dirty))))))
+       (setf (react--instance-spec instance) spec)
+       (react--force-render instance)))))
+
+(defun react--force-render (instance)
+  "Have INSTANCE render again at the next flush, whatever :should-update says."
+  (when (react--instance-mounted instance)
+    (setf (react--instance-force instance) t)
+    (unless (react--instance-dirty instance)
+      (setf (react--instance-dirty instance) t)
+      (push instance react--dirty))))
 
 (defun react--each-instance (function &optional mounted)
   "Call FUNCTION with every component instance below MOUNTED (or on the page)."
@@ -1014,6 +1019,120 @@ conditionals may contain awaits; an `unwind-protect' cleanup form and a
   (declare (indent 0))
   `(react--async-step (funcall (iter-lambda () ,@body)) nil))
 
+;;;; Queries
+
+;; Data that components fetch, kept by key and shared: two components that
+;; ask for the same key share one request and one result, a component that
+;; comes back (the Back button) shows what was loaded before at once, and a
+;; key is loaded again when it is stale or invalidated.
+
+(cl-defstruct (react--query (:constructor react--query-create))
+  status data error         ; loading, success or error; the last data; the error
+  fetched                   ; `float-time' of the last success, or nil: stale
+  loading                   ; the generation being loaded, or nil
+  (generation 0)            ; answers of older generations are dropped
+  loader stale-ms
+  subscribers)              ; instances that read it
+
+(defvar react--queries (make-hash-table :test #'equal) "Key -> `react--query'.")
+
+(defun react-query (self key loader &rest options)
+  "The data under KEY for the component SELF, loaded by LOADER.
+KEY is any Lisp data compared with `equal', a list such as
+\=(\"videos\" \"home\") say.  LOADER is a function of no arguments that
+returns an awaitable (`react-fetch-async', or any function of RESOLVE and
+REJECT); its value is the data.
+
+Returns a plist (:status STATUS :data DATA :error ERROR :fetching BOOL):
+STATUS is `loading' (nothing yet), `success' or `error'.  The data of the
+last success stays while the key is loaded again (:fetching t).
+
+SELF renders again when the key's data or status changes, :pure or not.
+Requests are shared: other components asking for KEY while it loads
+wait for the same answer.  When SELF asks for the first time, a key whose
+data is older than :stale-ms (OPTIONS, default 0) is loaded again in
+the background.  See `react-invalidate' and `react-query-set'."
+  (let ((query (or (gethash key react--queries)
+                   (puthash key (react--query-create :status 'loading) react--queries))))
+    (setf (react--query-loader query) loader
+          (react--query-stale-ms query) (or (plist-get options :stale-ms) 0))
+    (unless (memq self (react--query-subscribers query))
+      (push self (react--query-subscribers query))
+      (when (react--query-stale-p query) (react--query-load key query)))
+    (list :status (react--query-status query) :data (react--query-data query)
+          :error (react--query-error query) :fetching (and (react--query-loading query) t))))
+
+(defun react--query-stale-p (query)
+  (let ((fetched (react--query-fetched query)))
+    (or (null fetched)
+        (> (* 1000 (- (float-time) fetched)) (react--query-stale-ms query)))))
+
+(defun react--query-load (key query)
+  "Load QUERY (under KEY) unless it is loading already."
+  (unless (eql (react--query-loading query) (react--query-generation query))
+    (let ((generation (react--query-generation query)))
+      (setf (react--query-loading query) generation)
+      (funcall (funcall (react--query-loader query))
+               (lambda (data) (react--query-settle key generation 'success data nil))
+               (lambda (error) (react--query-settle key generation 'error nil error))))))
+
+(defun react--query-settle (key generation status data error)
+  (let ((query (gethash key react--queries)))
+    (when (and query (= generation (react--query-generation query)))
+      (setf (react--query-loading query) nil
+            (react--query-status query) (if (and (eq status 'error) (react--query-fetched query)) 'success status)
+            (react--query-error query) error)
+      (when (eq status 'success)
+        (setf (react--query-data query) data
+              (react--query-fetched query) (float-time)))
+      (react--query-notify query))))
+
+(defun react--query-notify (query)
+  "Render the components that read QUERY again; forget those that are gone."
+  (setf (react--query-subscribers query)
+        (cl-remove-if-not #'react--instance-mounted (react--query-subscribers query)))
+  (mapc #'react--force-render (react--query-subscribers query)))
+
+(defun react--query-key-match-p (prefix key)
+  (or (equal prefix key)
+      (and (consp prefix) (consp key) (<= (length prefix) (length key))
+           (equal prefix (cl-subseq key 0 (length prefix))))))
+
+(defun react-invalidate (prefix)
+  "Make the data of every key that is PREFIX, or a list that starts with
+the list PREFIX, stale: answers on their way are dropped, and keys that
+mounted components read are loaded again."
+  (maphash (lambda (key query)
+             (when (react--query-key-match-p prefix key)
+               (cl-incf (react--query-generation query))
+               (setf (react--query-fetched query) nil
+                     (react--query-loading query) nil
+                     (react--query-subscribers query)
+                     (cl-remove-if-not #'react--instance-mounted (react--query-subscribers query)))
+               (when (react--query-subscribers query)
+                 (react--query-load key query)
+                 (react--query-notify query))))
+           react--queries)
+  nil)
+
+(defun react-query-set (key data)
+  "Put DATA under KEY as if it had been loaded (an optimistic update, or
+the answer of a request that changed it).  Components that read it
+render again."
+  (let ((query (or (gethash key react--queries)
+                   (puthash key (react--query-create) react--queries))))
+    (cl-incf (react--query-generation query))
+    (setf (react--query-status query) 'success (react--query-data query) data
+          (react--query-error query) nil (react--query-loading query) nil
+          (react--query-fetched query) (float-time))
+    (react--query-notify query))
+  data)
+
+(defun react-query-data (key)
+  "The data under KEY, or nil, without reading it for a component."
+  (let ((query (gethash key react--queries)))
+    (and query (react--query-data query))))
+
 ;;;; The page: localStorage
 
 ;; The host hands over this page's stored values when it starts, so reading
@@ -1086,6 +1205,7 @@ before writing when tabs share a list."
   (clrhash react--requests)
   (clrhash react--storage)
   (clrhash react--storage-watchers)
+  (clrhash react--queries)
   (setq react--warned-invalid nil)
   nil)
 

@@ -762,6 +762,54 @@
 
 ;;;; Defining a component again
 
+(ert-deftest react-test-queries ()
+  "Queries are shared by key, loaded once, kept, and loaded again when invalidated."
+  (react-test--fresh
+    (let (renders two)
+      (react-define-component 'react-test-videos
+        :pure t
+        :render (lambda (self)
+                  (let ((query (react-query self (list "videos" (react-props self :list))
+                                            (lambda () (react-fetch-async "/videos.json"))
+                                            :stale-ms 60000)))
+                    (push (plist-get query :status) renders)
+                    `(p () ,(format "%s %s" (plist-get query :status)
+                                    (or (plist-get query :data) ""))))))
+      (react-define-component 'react-test-two-lists
+        :initial-state (lambda (_props) (list :second nil))
+        :render (lambda (self)
+                  (setq two self)
+                  `(div () (react-test-videos (:list "home"))
+                        ,(and (react-state self :second) '(react-test-videos (:list "home"))))))
+      (progn
+        (react-mount '(react-test-two-lists) "#app")
+        (let ((calls (react-test--calls (react-test--ops))))
+          (should (= (length calls) 1))                 ; one request
+          (should (equal (react-html "#app") "<div><p>loading </p></div>"))
+          ;; The answer renders the :pure component again.
+          (react-test--reply (car (car calls)) t '(:status 200 :ok t :text "[1,2]"))
+          (should (equal (react-html "#app") "<div><p>success (:status 200 :ok t :text [1,2])</p></div>"))))
+      ;; A second reader of the same key: no request, the data at once.
+      (react-set-state two :second t)
+      (setq renders nil)
+      (should-not (react-test--calls (react-test--ops)))
+      (should (equal (react-html "#app")
+                     "<div><p>success (:status 200 :ok t :text [1,2])</p><p>success (:status 200 :ok t :text [1,2])</p></div>"))
+      ;; Invalidated: loaded again, the old data shown meanwhile; an answer
+      ;; to the older request is dropped.
+      (let ((late (car (car (react-test--calls (progn (react-invalidate '("videos")) (react-test--ops)))))))
+        (should late)
+        (should (equal (plist-get (react-query-data '("videos" "home")) :text) "[1,2]"))
+        (react-invalidate '("videos"))
+        (let ((current (car (car (react-test--calls (react-test--ops))))))
+          (react-test--reply late t '(:status 200 :ok t :text "old"))
+          (should (equal (plist-get (react-query-data '("videos" "home")) :text) "[1,2]"))
+          (react-test--reply current t '(:status 200 :ok t :text "[3]"))
+          (should (string-match-p "\\[3\\].*\\[3\\]" (react-html "#app")))))
+      ;; Set by hand (an optimistic update).
+      (react-query-set '("videos" "home") "mine")
+      (should (equal (react-html "#app") "<div><p>success mine</p><p>success mine</p></div>")))))
+
 (ert-deftest react-test-redefinition-keeps-state ()
   "A component that is defined again renders anew with the state its instances have."
   (react-test--fresh
