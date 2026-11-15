@@ -204,6 +204,15 @@
       (should (equal (react-test--find "listen" (react-test--ops))
                      '(("listen" 1 "keydown" (:keys ["Enter"] :prevent nil))))))))
 
+(ert-deftest react-test-form-values ()
+  "The fields of a submitted form, by name."
+  (let ((event '(:type "submit" :form [["q" "括弧"] ["tag" "a"] ["tag" "b"] ["photo" "x.png"]])))
+    (should (equal (react-form-value event "q") "括弧"))
+    (should (equal (react-form-value event "tag") "a"))
+    (should (equal (react-form-values event "tag") '("a" "b")))
+    (should (equal (react-form-value event "missing") nil))
+    (should (equal (react-form-value '(:type "click") "q") nil))))
+
 (ert-deftest react-test-operations-are-json ()
   "The host receives the operations as JSON."
   (react-test--fresh

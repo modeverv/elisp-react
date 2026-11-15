@@ -200,6 +200,20 @@ try {
   assert.equal(await js("location.hash"), "");
   pass("event control: :stop keeps parents from hearing, :prevent keeps a link from navigating, :keys filters, :self ignores children");
 
+  // ---- what an event says ------------------------------------------------------------
+  await open("event-payload");
+  await js(`document.querySelector('.inner').dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true, button: 0, clientX: 12, clientY: 34 })); true`);
+  await until("document.querySelector('.seen').textContent.startsWith(':shift')", "the click is described");
+  const innerId = await js("document.querySelector('.area').__elispReactId + 1");
+  assert.equal(await text(".seen"), `:shift=t :ctrl=nil :button=0 :x=12 :y=34 :target=${innerId}`);
+  await js(`document.querySelector('.field').dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", code: "Enter", altKey: true, isComposing: true })); true`);
+  await until("document.querySelector('.seen').textContent.startsWith(':key')", "the key is described");
+  assert.equal(await text(".seen"), ':key="Enter" :code="Enter" :alt=t :composing=t :repeat=nil');
+  await js("document.querySelector('.form').requestSubmit(); true");
+  await until("document.querySelector('.seen').textContent.startsWith('括弧')", "the form's fields arrive");
+  assert.equal(await text(".seen"), '括弧 ("a" "b")');
+  pass("event payload: modifier keys, code, IME composition, button, coordinates, the target node and a form's fields reach Lisp");
+
   console.log("e2e host passed");
 } finally {
   client?.close();
