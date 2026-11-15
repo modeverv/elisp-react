@@ -217,6 +217,7 @@ text becomes U+FFFD (with a warning, once per component)."
 
 An element (NAME PROPS CHILD...) then renders this component.  Its
 children reach the component as the prop :children."
+  (declare (indent 1))
   (unless (functionp (plist-get spec :render))
     (error "Component %s has no :render function" name))
   (when (and (plist-get spec :pure) (not (plist-get spec :should-update)))
@@ -306,6 +307,13 @@ children reach the component as the prop :children."
   "The SVG elements that `jsx' recognises (not `set', a Lisp function:
 write that one with backquote).  Inside an <svg> every element is created
 as SVG.")
+
+;; Markup indents like a special form with one distinguished argument, the
+;; props: (div (:class "x")
+;;           (p "child"))
+(dolist (tag (append react-html-tags react-svg-tags))
+  (unless (get tag 'lisp-indent-function)
+    (put tag 'lisp-indent-function 1)))
 
 (defun react--jsx-element-p (form)
   "Non-nil if FORM is markup for `jsx': (TAG ...) or (Component ...)."
