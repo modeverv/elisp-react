@@ -133,9 +133,60 @@ read into an obarray of its own, and only names known here come through."
     ("wasm" . "application/wasm") ("el" . "text/plain; charset=utf-8")
     ("eld" . "text/plain; charset=utf-8") ("md" . "text/plain; charset=utf-8")))
 
+(defun elisp-react-server--decode-path (path)
+  "Decode URL PATH once, for both mount selection and file lookup."
+  (decode-coding-string (url-unhex-string path) 'utf-8))
+
+(defun elisp-react-server--file-id (file)
+  "The filesystem identity of a canonical local FILE, or nil."
+  (let ((attributes (file-attributes file)))
+    (and attributes (file-attribute-file-identifier attributes))))
+
+(defun elisp-react-server--private-file-p (file)
+  "Non-nil if canonical FILE is the configured notes file or its backup."
+  (let* ((data (file-truename elisp-react-server-data-file))
+         (file-id (elisp-react-server--file-id file))
+         (data-id (elisp-react-server--file-id data))
+         (unversioned (file-name-sans-versions file)))
+    (or (and data-id (equal data-id file-id))
+        ;; Compare the existing backups themselves: the original may be
+        ;; absent, and string comparisons do not capture case or Unicode
+        ;; filename equivalence on every filesystem.  A configured symlink
+        ;; can have backups beside either its own name or its target.
+        (and file-id (not (equal unversioned file))
+             (let ((suffix (substring file (length unversioned))))
+               (cl-some (lambda (name)
+                          (equal file-id
+                                 (elisp-react-server--file-id
+                                  (file-truename (concat name suffix)))))
+                        (list elisp-react-server-data-file data)))))))
+
+(defun elisp-react-server--public-target-p (file root)
+  "Non-nil if canonical FILE is public and inside canonical ROOT."
+  (let ((root-id (elisp-react-server--file-id root))
+        (private-id (elisp-react-server--file-id
+                     (file-truename (expand-file-name "data" elisp-react-server--directory))))
+        (cursor file))
+    ;; `file-truename' can preserve requested casing on a case-insensitive
+    ;; filesystem.  Emacs's file identifiers are (inode device), so aliases
+    ;; cannot hide the private directory by spelling its name differently.
+    (and root-id
+         (not (elisp-react-server--private-file-p file))
+         (catch 'public
+           (while cursor
+             (let ((id (elisp-react-server--file-id cursor)))
+               (when (or (null id) (and private-id (equal id private-id)))
+                 (throw 'public nil))
+               (when (equal id root-id) (throw 'public t))
+               (when (string-prefix-p "." (file-name-nondirectory cursor))
+                 (throw 'public nil))
+               (let ((parent (directory-file-name (file-name-directory cursor))))
+                 (setq cursor (unless (equal parent cursor) parent)))))
+           nil))))
+
 (defun elisp-react-server--file (path)
   "The file that the URL PATH names, or nil."
-  (let* ((path (decode-coding-string (url-unhex-string path) 'utf-8))
+  (let* ((path (elisp-react-server--decode-path path))
          (wasmacs (string-prefix-p "/wasmacs/" path))
          (root (file-name-as-directory (if wasmacs elisp-react-server-wasmacs elisp-react-server-root)))
          ;; Emacs can take names like /ssh:host:/file for files on other
@@ -152,8 +203,9 @@ read into an obarray of its own, and only names known here come through."
          (not (string-match-p "\\(?:\\`\\|/\\)\\." (substring file (length root))))
          (progn (when (file-directory-p file) (setq file (expand-file-name "index.html" file)))
                 (file-regular-p file))
-         (string-prefix-p (file-truename root) (file-truename file))
-         file)))
+         (let ((target (file-truename file)))
+           (and (elisp-react-server--public-target-p target (file-truename root))
+                target)))))
 
 ;;;; HTTP
 
@@ -189,7 +241,8 @@ rebinding); its requests carry that name in Host."
                                       (format "localhost:%d" elisp-react-server-port))))))
 
 (defun elisp-react-server--handle (process method target headers body)
-  (let ((path (car (split-string target "?"))))
+  (let* ((path (car (split-string target "?")))
+         (wasmacs (string-prefix-p "/wasmacs/" (elisp-react-server--decode-path path))))
     (message "elisp-react-server: %s %s" method (replace-regexp-in-string "[^!-~]" "?" path))
     (cond
      ((not (elisp-react-server--own-host-p headers))
@@ -205,6 +258,8 @@ rebinding); its requests carry that name in Host."
           (error (elisp-react-server--respond-lisp process "400 Bad Request" (error-message-string err))))))
      ((not (member method '("GET" "HEAD")))
       (elisp-react-server--respond process "405 Method Not Allowed" "text/plain" "method not allowed"))
+     ((and (not wasmacs) (not (elisp-react-server--same-origin-p headers)))
+      (elisp-react-server--respond process "403 Forbidden" "text/plain" "requests from other sites are refused"))
      (t
       (let ((file (elisp-react-server--file path)))
         (if (not file)
@@ -217,7 +272,7 @@ rebinding); its requests carry that name in Host."
              (insert-file-contents-literally file)
              (buffer-string))
            ;; The files of wasmacs are fetched by a worker of the page.
-           "Access-Control-Allow-Origin: *\r\n")))))))
+           (when wasmacs "Access-Control-Allow-Origin: *\r\n"))))))))
 
 (defun elisp-react-server--filter (process chunk)
   "Collect a request on PROCESS; answer it when it is complete."
