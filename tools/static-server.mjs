@@ -26,12 +26,23 @@ export async function serveDirectory(root, { port = 0, host = "127.0.0.1" } = {}
       response.writeHead(404).end("not found");
       return;
     }
-    // Like GitHub Pages: any origin may read the files.
-    response.writeHead(200, {
+    // Like GitHub Pages: any origin may read the files, and a part of one
+    // (Emacs reads its Lisp files as ranges of one large file).
+    const headers = {
       "Content-Type": mimeTypes[extname(file)] || "application/octet-stream",
       "Cache-Control": "no-store",
       "Access-Control-Allow-Origin": "*",
-    });
+    };
+    const size = statSync(file).size;
+    const range = /^bytes=(\d+)-(\d+)$/.exec(request.headers.range || "");
+    if (range && Number(range[1]) <= Number(range[2]) && Number(range[1]) < size) {
+      const start = Number(range[1]);
+      const end = Math.min(Number(range[2]), size - 1);
+      response.writeHead(206, { ...headers, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": end - start + 1 });
+      createReadStream(file, { start, end }).pipe(response);
+      return;
+    }
+    response.writeHead(200, headers);
     createReadStream(file).pipe(response);
   });
   await new Promise((resolve, reject) => {

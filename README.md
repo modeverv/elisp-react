@@ -4,7 +4,7 @@ React, written in Emacs Lisp.
 
 This is an experiment: can the React of 2013 (components with props and state, render functions that return a virtual DOM, a reconciler) be written in Emacs Lisp and drive a real web page? GNU Emacs 30.2 runs in the page as WebAssembly ([wasmacs](https://github.com/modeverv/wasmacs)); components, state and the reconciler are Emacs Lisp; JavaScript only applies the DOM operations Lisp computes.
 
-Live: <https://modeverv.github.io/elisp-react/>. The first visit of an example downloads Emacs, about 150 MB; it is then kept in the browser, and later visits render in about 0.2 s.
+Live: <https://modeverv.github.io/elisp-react/>. The first visit of an example downloads Emacs, about 5 MB; it is then kept in the browser, and later visits render in about 0.2 s.
 
 What it comes to:
 
@@ -178,7 +178,7 @@ With a wasmacs checkout next to this one (`../wasmacs/docs`), the server and the
 
 ## Limits
 
-This is an experiment, not a framework. A handler that never returns cannot be interrupted, an `async` body cannot be cancelled, and Emacs is a 150 MB download on the first visit. A render of 1000 keyed rows takes about 130 ms, about 30 ms when the rows are `:pure`. The server of `examples/server/` belongs to the example and is not one to publish ("Emacs on both ends" says what it lacks). See [doc/experiment-notes.md](doc/experiment-notes.md).
+This is an experiment, not a framework. A handler that never returns cannot be interrupted, an `async` body cannot be cancelled, and Emacs is a 5 MB download on the first visit (Emacs itself; of its 146 MB of Lisp files a page fetches the few it reads, a library it requires later when it requires it). A render of 1000 keyed rows takes about 130 ms, about 30 ms when the rows are `:pure`. The server of `examples/server/` belongs to the example and is not one to publish ("Emacs on both ends" says what it lacks). See [doc/experiment-notes.md](doc/experiment-notes.md).
 
 ## Licence
 

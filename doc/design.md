@@ -25,7 +25,7 @@ Source that is merely evaluated runs in Emacs's interpreter, which expands every
 
 So `js/elisp-react.js` loads every file compiled: it writes the source into Emacs's in-memory filesystem, calls `byte-compile-file` and loads the result. Compiling `react.el` takes about 0.3 s, so the compiled code is kept in `localStorage` under a hash of the source and of Emacs's version, and later visits load it directly. A file that does not compile is evaluated instead, so that the error the page shows is the program's own.
 
-Emacs itself is cached by the wasmacs eval service (Cache Storage, keyed by a build id): the 150 MB are downloaded on the first visit only.
+Emacs itself is cached by the wasmacs eval service (Cache Storage, keyed by a build id) and downloaded on the first visit only: `temacs.wasm` and the pdmp, about 5 MB as GitHub Pages compresses them. Emacs's own Lisp files (146 MB) are not downloaded as a whole. What `react.el` needs is in the pdmp for the most part; the service fetches a file when Emacs reads it (the five examples together read seven, 0.5 MB), from a server that answers range requests. `start()` says which it was: `files` is `"on demand"`, or `"all"` where the server sends whole files only and the package is downloaded as before.
 
 ## Elements
 

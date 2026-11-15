@@ -4,7 +4,7 @@ Emacs Lisp で書いた React です。
 
 これは実験です。2013年ごろの React（props と state を持つコンポーネント、仮想 DOM を返す render 関数、差分計算）を Emacs Lisp で書いて、本物の Web ページを動かせるかを確かめます。GNU Emacs 30.2 がページの中で WebAssembly として動きます（[wasmacs](https://github.com/modeverv/wasmacs)）。コンポーネント、state、差分計算はすべて Emacs Lisp で、JavaScript は Lisp が計算した DOM 操作を適用するだけです。
 
-公開ページ: <https://modeverv.github.io/elisp-react/> （サンプルを最初に開くとき、Emacs 本体を約150MBダウンロードします。以後はブラウザに保存され、2回目からは約0.2秒で描画されます）
+公開ページ: <https://modeverv.github.io/elisp-react/> （サンプルを最初に開くとき、Emacs 本体を約5MBダウンロードします。以後はブラウザに保存され、2回目からは約0.2秒で描画されます）
 
 これでできること:
 
@@ -178,7 +178,7 @@ npm run test:server  # サーバーのサンプル（Emacs のサーバープロ
 
 ## 制限
 
-これは実験で、フレームワークではありません。戻ってこないハンドラは中断できません。`async` の本体は途中でキャンセルできません。Emacs は初回に約150MBをダウンロードします。key つきの1000行の再描画には約130ミリ秒、行を `:pure` にすると約30ミリ秒かかります。`examples/server/` のサーバーはサンプルの一部で、公開するためのものではありません（足りないものは「両側が Emacs」にあります）。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
+これは実験で、フレームワークではありません。戻ってこないハンドラは中断できません。`async` の本体は途中でキャンセルできません。Emacs は初回に約5MBをダウンロードします（Emacs 本体です。付属の Lisp ファイル 146MB からは、ページが読んだものだけを取得します。あとから `require` したライブラリは、そのときに取得します）。key つきの1000行の再描画には約130ミリ秒、行を `:pure` にすると約30ミリ秒かかります。`examples/server/` のサーバーはサンプルの一部で、公開するためのものではありません（足りないものは「両側が Emacs」にあります）。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
 
 ## ライセンス
 

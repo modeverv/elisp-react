@@ -330,7 +330,9 @@ function reportError(error) {
  *             `react-fetch' (a development tool answers some URLs itself)
  * Resolves with { emacs, version, bootMs, dom, load }: `emacs` is the eval
  * service (emacs.eval, emacs.call), for experiments from the console;
- * load(name, text) evaluates changed source in the running page.
+ * load(name, text) evaluates changed source in the running page.  `files`
+ * says how Emacs gets its own Lisp files: "on demand" (the few it reads) or
+ * "all" (the whole package, from a server without range requests).
  */
 export async function start({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.el", import.meta.url), sources = null,
                               fetch: fetchFunction = (...args) => fetch(...args) } = {}) {
@@ -363,7 +365,7 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   }
   dom.apply(await emacs.call("react-flush"));
   return {
-    emacs, dom, version: info.version, bootMs: info.bootMs, cached: info.cached,
+    emacs, dom, version: info.version, bootMs: info.bootMs, cached: info.cached, files: info.files,
     // Evaluate changed source while the page runs (a development tool).
     // Components that are defined again keep the state of their instances.
     // Resolves with { file, log } (see loadLisp).

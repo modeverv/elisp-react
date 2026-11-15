@@ -69,7 +69,7 @@ try {
     const t0 = Date.now();
     await client.send("Page.navigate", { url: `${siteOrigin}${path}${wasmacsQuery}` }, sessionId);
     await until("Boolean(window.elispReact)", `${path}: the host script runs`);
-    const info = await js("window.elispReact.ready.then((app) => ({ version: app.version, bootMs: app.bootMs }))");
+    const info = await js("window.elispReact.ready.then((app) => ({ version: app.version, bootMs: app.bootMs, files: app.files }))");
     return { ...info, totalMs: Date.now() - t0 };
   };
 
@@ -79,7 +79,10 @@ try {
   assert.deepEqual(await text(".count"), ["Apples: 3", "Oranges: 0"]);
   assert.match((await text("#app p"))[0], /Rendered by GNU Emacs 30\.2/);
   assert.equal(await js("document.querySelector('.loading')"), null);
-  pass(`counter: Emacs ${counter.version} rendered the page (${counter.totalMs} ms from navigation, ${counter.bootMs} ms to start Emacs)`);
+  // Emacs's own Lisp files are not downloaded as a whole: the page gets
+  // the few it reads.
+  assert.equal(counter.files, "on demand");
+  pass(`counter: Emacs ${counter.version} rendered the page (${counter.totalMs} ms from navigation, ${counter.bootMs} ms to start Emacs, its files ${counter.files})`);
 
   // Tag the nodes: a re-render must keep them (patched, not rebuilt).
   await js("document.querySelectorAll('#app *').forEach((node, index) => { node.dataset.seen = index; }); true");
