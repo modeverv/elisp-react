@@ -463,6 +463,16 @@
     (should-error (macroexpand '(jsx (format "not markup"))))
     (should-error (macroexpand '(jsx (p (:id "a" oops)))))))
 
+(ert-deftest react-test-nil-in-mapped-children ()
+  "A mapped list of children may start with nil, or be all nil."
+  (react-test--fresh
+    (react-mount `(ul () ,(mapcar (lambda (n) (when (> n 1) `(li () ,(format "%d" n)))) '(1 2 3))) "#app")
+    (should (equal (react-html "#app") "<ul><li>2</li><li>3</li></ul>"))
+    (react-mount `(ul () ,(mapcar (lambda (_n) nil) '(1 2))) "#app")
+    (should (equal (react-html "#app") "<ul></ul>"))
+    (react-mount (jsx (ul (mapcar (lambda (n) (when (cl-oddp n) (jsx (li n)))) '(2 3)))) "#app")
+    (should (equal (react-html "#app") "<ul><li>3</li></ul>"))))
+
 (ert-deftest react-test-jsx-renders ()
   "Components written with `jsx' render and update like the others."
   (react-test--fresh

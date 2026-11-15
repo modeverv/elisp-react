@@ -266,7 +266,9 @@ children reach the component as the prop :children."
   (let (out)
     (dolist (child children)
       (cond ((or (null child) (eq child t)))
-            ((and (consp child) (not (symbolp (car child))))
+            ;; A list of elements: what `mapcar' returns, nil items too
+            ;; (`when' in the mapped function), the first one included.
+            ((and (consp child) (or (null (car child)) (not (symbolp (car child)))))
              (setq out (nconc (nreverse (react--flatten-children child)) out)))
             (t (push child out))))
     (nreverse out)))
@@ -274,7 +276,7 @@ children reach the component as the prop :children."
 (defun react--kind (vnode)
   "What VNODE renders as: `text', (host . TAG) or (component . NAME)."
   (cond ((or (stringp vnode) (numberp vnode)) 'text)
-        ((and (consp vnode) (symbolp (car vnode)))
+        ((and (consp vnode) (car vnode) (symbolp (car vnode)))
          (cons (if (get (car vnode) 'react-component) 'component 'host) (car vnode)))
         (t (error "Not an element: %S" vnode))))
 
@@ -461,7 +463,7 @@ and INSTANCE then renders nothing; without one, it is signalled again as
   (condition-case err
       (let ((vnode (funcall (plist-get (react--instance-spec instance) :render) instance)))
         (cond ((null vnode) "")
-              ((and (consp vnode) (not (symbolp (car vnode))))
+              ((and (consp vnode) (or (null (car vnode)) (not (symbolp (car vnode)))))
                (error "Component %s rendered a list of elements; wrap them in one element"
                       (react--instance-type instance)))
               (t vnode)))
