@@ -8,10 +8,11 @@
 // one, from the public site.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync, statSync } from "node:fs";
+import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serveDirectory } from "../tools/static-server.mjs";
 import { CdpClient, chromePath, devToolsUrl, evaluate, pause, waitUntil } from "./lib/cdp.mjs";
@@ -312,6 +313,30 @@ try {
   assert.deepEqual(await js("[window.elispReact.library.from, ...window.elispReact.compileLogs.map((each) => each.from)]"), ["manifest", "manifest"]);
   assert.equal(await js("Object.keys(localStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 0);
   pass("compiled ahead of time: with a manifest from tools/compile.mjs the first visit compiles neither react.el nor the page's Lisp");
+
+  // ---- the start: progress, and a time limit ----------------------------------------
+  await open("progress");
+  const steps = await js("window.steps");
+  assert.equal(steps[0], "build id");
+  assert.equal(steps.includes("emacs"), true);
+  assert.deepEqual(steps.slice(-2), ["lisp", "lisp"]);
+  pass(`start: the page hears how the start goes (${[...new Set(steps)].join(", ")})`);
+  // A wasmacs site that never sends temacs.wasm.
+  const stalled = createServer((request, response) => {
+    const path = decodeURIComponent(new URL(request.url, "http://x").pathname);
+    if (path.endsWith("temacs.wasm")) return;          // never answered
+    const file = join(resolve(wasmacsDocs), path);
+    if (!file.startsWith(resolve(wasmacsDocs)) || !existsSync(file) || !statSync(file).isFile()) { response.writeHead(404).end(); return; }
+    response.writeHead(200, { "Access-Control-Allow-Origin": "*", "Content-Type": file.endsWith(".js") ? "text/javascript" : "application/octet-stream" });
+    createReadStream(file).pipe(response);
+  });
+  await new Promise((resolve) => stalled.listen(0, "127.0.0.1", resolve));
+  servers.push(stalled);
+  await client.send("Page.navigate", { url: `${site.origin}/test/pages/boot-timeout/?wasmacs=http://127.0.0.1:${stalled.address().port}/` }, sessionId);
+  await until("/^boot-timeout: Emacs did not start within 3 s \\(it was at: /.test(document.querySelector('#elisp-react-error')?.textContent)",
+    "a stalled start is reported", 15_000);
+  pass(`start: a start that stalls (temacs.wasm never comes) ends after its time limit and says where it was: ${(await text("#elisp-react-error")).trim()}`);
+  stalled.closeAllConnections?.();
 
   console.log("e2e host passed");
 } finally {

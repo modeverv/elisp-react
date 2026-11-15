@@ -73,10 +73,20 @@ A page that starts by itself takes its settings from `<meta>` elements. A page t
 |---|---|---|
 | `wasmacs` | `elisp-react:wasmacs` | Where the wasmacs eval service is published. |
 | `timeout` | `elisp-react:timeout` | Milliseconds Lisp may take to answer an event or an answer from the page (default 30000; 0: no limit). Lisp that takes longer, an endless loop say, cannot be interrupted: Emacs is stopped, the page sends it nothing more, and an error with the symbol `timeout` is reported (`elisp-react:error`, the red box). Long work can give the page back now and then: inside `react-async`, `(react-await (react-sleep 0))` every few hundred items; the limit counts from each such return. |
+| `bootTimeout` | `elisp-react:boot-timeout` | Milliseconds the start may take (default 120000; 0: no limit). A start that stalls (a download that never ends) stops Emacs and fails with the symbol `boot-timeout`, saying where it was. `signal`, an `AbortSignal`, aborts a start by hand. |
+| `onProgress` | | `({ phase, url, bytes, from })`: how the start goes: `"build id"`, `"download"` of each file Emacs needs that is not in the browser yet, `"emacs"`, then `"lisp"` for each file of the page (`from`: compiled ahead, kept, compiled). The same goes to `document` as the event `elisp-react:progress`, for a "Loading…" line. |
 | `location` | | `"browser"`: the page's address. `"memory"`: one the host keeps, starting at `/`, with its own history; hash links are followed there. The default is `"browser"`, and `"memory"` where the page has no address (elisp-studio's preview, `about:srcdoc`). |
 | `compiled` | `elisp-react:compiled` | A manifest made by `tools/compile.mjs`: files whose source matches are not compiled in the page. |
 | `cache` | | `false`: compile every file at every start and keep nothing (a development tool's "restart"). |
 | `library`, `sources`, `fetch` | | `react.el`'s URL; Lisp to load instead of the page's scripts; a function to use instead of `fetch` (for development tools). |
+
+If `elisp-react.js` itself cannot be loaded (no network, a blocked CDN), nothing runs, not even the error box. A page that wants to say so can add a few lines:
+
+```html
+<script>
+  setTimeout(() => { if (!window.elispReact) document.querySelector("#app").textContent = "This page could not load its script."; }, 20000);
+</script>
+```
 
 ## Emacs on both ends
 
