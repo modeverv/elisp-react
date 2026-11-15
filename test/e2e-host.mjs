@@ -427,6 +427,24 @@ try {
   assert.match(await js("window.startError"), /old-react\.el speaks protocol 1 \(or none\), this elisp-react\.js 2: load the two from one release/);
   pass("protocol: a react.el of another release than elisp-react.js is refused with a clear message");
 
+  // ---- a strict Content-Security-Policy ------------------------------------------------
+  const wasmacsOrigin = new URL(wasmacsQuery.slice("?wasmacs=".length)).origin;
+  const policy = [
+    "default-src 'none'",
+    `script-src 'self' ${wasmacsOrigin} blob: 'wasm-unsafe-eval'`,
+    `worker-src ${wasmacsOrigin} blob:`,
+    `connect-src 'self' ${wasmacsOrigin}`,
+    "style-src 'self'",
+    "img-src 'self' data:",
+  ].join("; ");
+  await open("csp", `&csp=${encodeURIComponent(policy)}`);
+  await click(".count");
+  await until("document.querySelector('.count').textContent === '1'", "a click under the policy");
+  assert.equal(await js("getComputedStyle(document.querySelector('.styled')).color"), "rgb(0, 128, 0)");
+  assert.equal(await js("document.querySelector('.styled').style.width"), "120px");
+  assert.deepEqual(await js("window.violations"), []);
+  pass(`CSP: the page runs and styles under "${policy.replace(new RegExp(wasmacsOrigin, "g"), "WASMACS")}" with no violation`);
+
   console.log("e2e host passed");
 } finally {
   client?.close();

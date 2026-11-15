@@ -200,6 +200,15 @@ Lisp はページに応答している間しか動きません。待つことも
 
 **オリジンは1つの信頼の単位です。** `localStorage`、そこに保存したコンパイル結果、Cache Storage の Emacs は、ページのオリジンのものです。同じオリジンのページなら、どれでも別のページの保存値（API キー、トークン）を読め、別のページが次に読み込むコードを書き換えられ、フレームで開いて操作することもできます。保存の名前と `cache: "session"` は、まっとうなアプリケーション同士を分けるもので、悪意のあるページからは守りません。秘密を持つアプリケーションには、信頼できないページの無い、自分だけのオリジンが要ります。`USER.github.io` のような共有のホストでは、すべてのリポジトリの Pages が1つのオリジンを共有し、利用者が開いたどんなプロジェクトでも動かす elisp-studio のページ内の studio も同じです。コンパイル結果のマニフェスト（`tools/compile.mjs`）は、オリジンの保存領域ではなくサイトから取得します。
 
+**Content-Security-Policy。** ページが許す必要のあるものは、Emacs をどこから読むかで変わります。wasmacs が別のオリジンにあるとき（既定の `https://modeverv.github.io/wasmacs/`）、次のポリシーでページは違反無しに動きます（`test/e2e-host.mjs` で確かめています）。
+
+```
+default-src 'none'; script-src 'self' WASMACS blob: 'wasm-unsafe-eval'; worker-src WASMACS blob:;
+connect-src 'self' WASMACS; style-src 'self'; img-src 'self' data:
+```
+
+（`WASMACS` は wasmacs のオリジンです。アプリケーション自身が取得する先は `connect-src` に加えます。）eval service のワーカーは `blob:` から起動し、WebAssembly をコンパイルするので、`blob:` と `'wasm-unsafe-eval'` が要ります。wasmacs をページと同じオリジンに置き、ポリシーをページだけに付けるなら（`<meta>`、または HTML へのヘッダー）、`script-src 'self'; worker-src 'self'; connect-src 'self'` で足ります。style のための `'unsafe-inline'` は要りません。`:style` は CSSOM で設定します。ページのインラインのスクリプトにはハッシュが要ります（インラインの `<script type="text/emacs-lisp">` はデータで、スクリプトではありません）。Trusted Types を強制するポリシーは、ポリシー名 `wasmacs-eval` を許す必要があります。
+
 ログインについて、ページ側で決まっていることは次のとおりです（2026-11-15 に、Chrome から elisp-studio のプロジェクトサーバーに対して、セッションの Cookie と Bearer トークンを1つのページで試しました）。
 
 - **Cookie は何もしなくても届きます。** `react-fetch` は、ブラウザの `fetch` を既定の設定のまま使います。ページ自身のサーバーへのリクエストには、そのサーバーの Cookie が付き、応答で渡された Cookie も保存されます。`HttpOnly` のセッション Cookie は、Lisp からは見えません。別のオリジンへのリクエストには、`:credentials "include"` を付けない限り Cookie が付かず、相手のサーバーの CORS の設定に従います。
