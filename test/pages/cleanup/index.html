@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en" data-elisp-react-manual>
+<meta charset="utf-8">
+<title>cleanup</title>
+<div id="app">Loading Emacs…</div>
+<script type="module">
+import { start } from "/js/elisp-react.js";
+// ?files=a,b: the page loads these files; one that it stops loading is forgotten.
+const files = (new URLSearchParams(location.search).get("files") || "a").split(",");
+const sources = files.map((name) => ({ name: `${name}.el`, text: `(defvar cleanup-${name} t)` }));
+sources.push({ name: "mount.el", text: `(react-mount (list 'p '(:class "files") ${JSON.stringify(files.join(" "))}) "#app")` });
+window.elispReact = { ready: start({ sources }) };
+window.elispReact.ready.then((app) => Object.assign(window.elispReact, app));
+</script>
+</html>

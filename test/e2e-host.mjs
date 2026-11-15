@@ -348,7 +348,7 @@ try {
   assert.deepEqual(await js("Object.keys(localStorage).filter((key) => !key.startsWith('elisp-react:compiled:')).sort()"),
     ["elisp-react:/test/pages/storage-scope/:visits"]);
   assert.equal(await js("Object.keys(localStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 0);
-  assert.equal(await js("Object.keys(sessionStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 3);   // react.el, and the inline script of each address
+  assert.equal(await js("Object.keys(sessionStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 2);   // react.el and the inline script; the other address's script is forgotten
   pass("storage: /app/ and /app/index.html are one application (old keys move); cache 'session' keeps compiled code in the tab only");
 
   // ---- answers that arrive together --------------------------------------------------
@@ -444,6 +444,16 @@ try {
   assert.equal(await js("document.querySelector('.styled').style.width"), "120px");
   assert.deepEqual(await js("window.violations"), []);
   pass(`CSP: the page runs and styles under "${policy.replace(new RegExp(wasmacsOrigin, "g"), "WASMACS")}" with no violation`);
+
+  // ---- compiled code of files no longer loaded -----------------------------------------
+  const compiledNames = () => js("Object.keys(localStorage).filter((key) => key.startsWith('elisp-react:compiled:')).map((key) => key.slice('elisp-react:compiled:'.length)).sort()");
+  await open("cleanup", "&files=a,b");
+  await js("localStorage.clear(); true");
+  await open("cleanup", "&files=a,b");
+  assert.deepEqual((await compiledNames()).filter((name) => name.endsWith(".el") && !name.includes("react.el")), ["a.el", "b.el", "mount.el"]);
+  await open("cleanup", "&files=a");
+  assert.deepEqual((await compiledNames()).filter((name) => name.endsWith(".el") && !name.includes("react.el")), ["a.el", "mount.el"]);
+  pass("privacy: compiled code of a file the page no longer loads is removed from the browser");
 
   console.log("e2e host passed");
 } finally {

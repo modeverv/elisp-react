@@ -804,6 +804,19 @@
       ;; Nothing is told back to the page: the other tab already stored it.
       (should (equal (react-test--find "tell" (react-test--ops)) nil)))))
 
+(ert-deftest react-test-storage-max-age ()
+  "A value stored with a maximum age is forgotten when its time is up."
+  (react-test--fresh
+    (react-storage-set "later" '("a") 3600)
+    (should (equal (react-storage-get "later") '("a")))
+    (should (string-match-p "react--expiring" (plist-get (nth 2 (car (react-test--ops))) :value)))
+    (react--storage-load (vector (vector "old" (prin1-to-string (list 'react--expiring (- (float-time) 1) "x")))
+                                 (vector "kept" "1")))
+    (should (equal (react-storage-get "old" 'gone) 'gone))
+    (should (equal (react-storage-get "kept") 1))
+    ;; The page is told to remove it.
+    (should (equal (react-test--find "tell" (react-test--ops)) '(("tell" "storage-remove" (:key "old")))))))
+
 (ert-deftest react-test-interval-follows-the-component ()
   "A clock starts its interval when mounted and stops it when unmounted."
   (react-test--fresh
