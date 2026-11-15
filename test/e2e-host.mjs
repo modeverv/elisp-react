@@ -267,6 +267,26 @@ try {
   assert.equal(await js("document.querySelector('.slow').value"), "abcdefgh");
   pass("forms: typing faster than a slow render loses no letter; a controlled <select> shows its value from the start");
 
+  // ---- HTML from elsewhere -----------------------------------------------------------
+  await open("inner-html");
+  await pause(300);
+  const cleaned = await js(`(() => {
+    const box = document.querySelector('.text');
+    const links = [...box.querySelectorAll('a')];
+    return { html: box.querySelector('p').innerHTML, img: box.querySelector('img')?.getAttributeNames().sort(),
+             links: links.map((link) => link.getAttributeNames().sort().map((name) => name + '=' + link.getAttribute(name))),
+             gone: ['script', 'iframe', 'svg'].map((tag) => box.querySelector(tag)),
+             bad: [window.bad1, window.bad2, window.bad3, window.bad4, window.bad5, window.bad6] };
+  })()`);
+  assert.deepEqual(cleaned, {
+    html: "Hi <b>there</b> kept text", img: ["alt", "src"],
+    links: [[], ["href=https://example.com/", "rel=noopener noreferrer"]],
+    gone: [null, null, null], bad: [null, null, null, null, null, null],
+  });
+  await click(".next");
+  await until("document.querySelector('.text').innerHTML === '<p>next</p>'", "new HTML replaces the old");
+  pass("inner HTML: HTML from elsewhere is shown cleaned: no scripts, handlers, script URLs, frames or styles; unknown tags keep their text");
+
   console.log("e2e host passed");
 } finally {
   client?.close();
