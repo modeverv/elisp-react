@@ -251,6 +251,22 @@ try {
   assert.equal(await js("document.querySelectorAll('.chart rect')[3].namespaceURI"), "http://www.w3.org/2000/svg");
   pass("svg: Lisp draws inline SVG in the SVG namespace (also elements added later); script URLs in links and animations are refused");
 
+  // ---- forms ----------------------------------------------------------------------
+  await open("forms");
+  assert.equal(await js("document.querySelector('.fruit').value"), "b");
+  await js(`(async () => {
+    const field = document.querySelector('.slow');
+    for (const letter of "abcdefgh") {
+      field.value += letter;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return true;
+  })()`);
+  await until("document.querySelector('.text').textContent === 'abcdefgh'", "Lisp has every letter", 10_000);
+  assert.equal(await js("document.querySelector('.slow').value"), "abcdefgh");
+  pass("forms: typing faster than a slow render loses no letter; a controlled <select> shows its value from the start");
+
   console.log("e2e host passed");
 } finally {
   client?.close();
