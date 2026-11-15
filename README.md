@@ -138,15 +138,16 @@ Lisp runs only while it answers the page: it cannot wait and cannot reach into t
 | | |
 |---|---|
 | `(react-set-timeout MS F)`, `(react-set-interval MS F)`, `(react-clear-timer TIMER)` | Call `F` later, once or repeatedly. Start an interval in `:did-mount`, clear it in `:will-unmount`. |
-| `(react-fetch URL :method :headers :body :then F :catch F)`, `(react-response-json RESPONSE)`, `(react-cancel REQUEST)` | The browser's `fetch`. `:then` gets a plist `(:status 200 :ok t :text "...")`, also for HTTP error statuses; `:catch` gets a message when there was no response. With `:file (react-ref SELF NAME)` instead of `:body`, the body is the file the visitor chose in that file input: it goes from the page to the server as it is, whatever its size, without passing through Lisp. |
+| `(react-fetch URL :method :headers :body :then F :catch F)`, `(react-response-json RESPONSE)`, `(react-cancel REQUEST)` | The browser's `fetch`. `:then` gets a plist `(:status 200 :ok t :url "..." :redirected nil :headers (:content-type "..." ...) :text "...")`, also for HTTP error statuses; `:catch` gets a message when there was no response. With `:file (react-ref SELF NAME)` instead of `:body`, the body is the file the visitor chose in that file input: it goes from the page to the server as it is, whatever its size, without passing through Lisp. `:form (list NAME VALUE ...)` sends `multipart/form-data`; a value is a string or a ref to a file input, whose files are sent. `:credentials`, `:cache`, `:redirect`, `:mode`, `:keepalive`, `:priority` and `:referrerPolicy` go to `fetch` as they are. |
+| `(react-response-header RESPONSE NAME)`, `:as 'base64` and `(react-response-bytes RESPONSE)` | A header of the response (any case). With `:as 'base64` the body arrives as `:base64` instead of `:text`, and `react-response-bytes` makes it a unibyte string: images, archives, any bytes. (Without it the body is decoded as UTF-8 text, and bytes that are not UTF-8 are lost.) |
 | `(react-storage-get KEY [DEFAULT])`, `(react-storage-set KEY VALUE)`, `(react-storage-remove KEY)` | The page's `localStorage`, holding any printable Lisp data. Reading is immediate. |
 | `:ref "name"` on an element, `(react-focus SELF "name")`, `(react-invoke SELF "name" METHOD)` | Call `focus`, `blur`, `select`, `click` or `scrollIntoView` on the DOM node of an element the component rendered, after the render's DOM changes (use it in `:did-update` or `:did-mount`). |
 
 Signing in, as far as the page is concerned (tried on 2026-11-15 from Chrome against elisp-studio's project server, a session cookie and a bearer token in one page):
 
-- **Cookies need nothing.** `react-fetch` is the browser's `fetch` with its defaults: a request to the page's own server carries that server's cookies and takes new ones from the answer. A session cookie that is `HttpOnly` never shows up in Lisp. A request to another origin carries no cookies and is subject to that server's CORS rules.
+- **Cookies need nothing.** `react-fetch` is the browser's `fetch` with its defaults: a request to the page's own server carries that server's cookies and takes new ones from the answer. A session cookie that is `HttpOnly` never shows up in Lisp. A request to another origin carries no cookies unless it says `:credentials "include"`, and is subject to that server's CORS rules.
 - **A token is a header.** `:headers (:authorization "Bearer …")` sends one (a JWT, for instance). The page then has to keep it: in a component's state, where a reload loses it, or with `react-storage-set`, which is `localStorage`: it stays, and every script of the page can read it. The cookie is the safer place.
-- **An answer is its status and its text.** Lisp does not get the headers of a response, so a server that hands out a token puts it in the body.
+- **An answer is its status, its headers and its body.** `react-response-header` reads a header (`Link`, `Retry-After`, `ETag`); headers that CORS does not expose to the page stay hidden from Lisp too.
 - **Checking is the server's.** The page's Emacs has `secure-hash` and no other cryptography ([wasmacs, doc/eval-service.md](https://github.com/modeverv/wasmacs/blob/master/doc/eval-service.md#hashes-random-bytes-sockets)). It can read what a token says (`base64-decode-string`, `json-parse-string`), but whatever a page checks, its visitor can change.
 
 The same asynchronous code can be written top to bottom. `react-async` runs its body until the first `react-await`, returns to the page, and continues when the page answers (it is built on Emacs's `generator.el`):
@@ -164,7 +165,7 @@ The same asynchronous code can be written top to bottom. `react-async` runs its 
 | | |
 |---|---|
 | `(react-async BODY...)`, `(react-await AWAITABLE)` | Loops and conditionals may contain awaits. A failed operation signals `react-async-error` at the await. Read state again after an await: it may have changed. |
-| `(react-sleep MS)`, `(react-fetch-async URL :method :headers :body)` | Awaitables. Any function of `(RESOLVE REJECT)` that calls one of them once is an awaitable. |
+| `(react-sleep MS)`, `(react-fetch-async URL OPTIONS...)` (those of `react-fetch` but `:then` and `:catch`) | Awaitables. Any function of `(RESOLVE REJECT)` that calls one of them once is an awaitable. |
 
 By default a component renders again whenever its parent does. A component can decline:
 

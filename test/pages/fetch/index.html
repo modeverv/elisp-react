@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-elisp-react-manual>
+<meta charset="utf-8">
+<title>fetch</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Fetch
+  :render
+  (lambda (self)
+    (jsx (div
+          (button (:class "bytes"
+                   :on-click (lambda (_event)
+                               (react-fetch "bytes.bin" :as 'base64
+                                 :then (lambda (response)
+                                         (let ((bytes (react-response-bytes response)))
+                                           (react-set-state self :bytes
+                                             (format "%d %d %d %s %s" (length bytes) (aref bytes 0) (aref bytes 255)
+                                                     (multibyte-string-p bytes)
+                                                     (react-response-header response "Content-Type"))))))))
+                  "bytes")
+          (p (:class "bytes-result") (react-state self :bytes))
+          (form (:class "upload"
+                 :on-submit (lambda (_event)
+                              (react-fetch "/echo" :method "POST" :credentials "include" :cache 'no-store
+                                :form (list "title" "Holiday" "photos" (react-ref self "photos"))
+                                :then (lambda (response)
+                                        (react-set-state self :echo (plist-get response :text)
+                                                         :url (plist-get response :url))))))
+                (input (:ref "photos" :class "photos" :type "file" :multiple t))
+                (button "send"))
+          (pre (:class "echo") (react-state self :echo))))))
+(react-mount '(Fetch) "#app")
+</script>
+<script type="module">
+import { start } from "/js/elisp-react.js";
+// /echo answers with what it received: the form's fields and the options.
+const echo = async (url, init) => {
+  const entries = [...init.body.entries()].map(([name, value]) => [name, typeof value === "string" ? value : `${value.name} ${value.size}`]);
+  const body = JSON.stringify({ entries, credentials: init.credentials, cache: init.cache, method: init.method });
+  return new Response(body, { headers: { "Content-Type": "application/json" } });
+};
+window.elispReact = { ready: start({ fetch: (url, init) => (new URL(url, location.href).pathname === "/echo" ? echo(url, init) : fetch(url, init)) }) };
+window.elispReact.ready.then((app) => Object.assign(window.elispReact, app));
+</script>
+</html>

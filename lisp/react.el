@@ -786,6 +786,22 @@ Returns the timer; stop it with `react-clear-timer' (in :will-unmount)."
 
 (defalias 'react-clear-timer #'react-cancel)
 
+(defconst react--fetch-options
+  '(:credentials :cache :redirect :mode :keepalive :priority :referrerPolicy :as)
+  "Options of `react-fetch' that go to the browser's fetch as they are.")
+
+(defun react--form-fields (form)
+  "FORM, a list NAME VALUE ..., as the host wants it: [[NAME VALUE]...].
+A VALUE that is a ref (`react-ref') sends the files chosen in that input."
+  (let (fields)
+    (while form
+      (let ((value (cadr form)))
+        (push (vector (car form)
+                      (if (react--host-p value) (list :file (react--host-dom-id value)) (or value "")))
+              fields))
+      (setq form (cddr form)))
+    (vconcat (nreverse fields))))
+
 (defun react-fetch (url &rest options)
   "Request URL with the browser's fetch.  OPTIONS is a plist:
 
@@ -795,20 +811,36 @@ Returns the timer; stop it with `react-clear-timer' (in :will-unmount)."
 :file REF        instead of :body: send the file the visitor chose in a
                  file input, (react-ref SELF NAME); its content is the
                  body, whatever its size
-:then FUNCTION   (RESPONSE), a plist (:status 200 :ok t :text \"...\");
-                 an HTTP error status is a response too, with :ok nil
+:form LIST       instead of :body: NAME VALUE ..., sent as
+                 multipart/form-data; a VALUE is a string, or a ref to a
+                 file input whose files are sent
+:as \='base64      the body as base64 text (:base64 in the response)
+                 instead of :text, for bytes; see `react-response-bytes'
+:credentials :cache :redirect :mode :keepalive :priority :referrerPolicy
+                 as in fetch: :credentials \"include\" sends cookies to
+                 another origin, :cache \"no-store\", ...
+:then FUNCTION   (RESPONSE), a plist (:status 200 :ok t :url \"...\"
+                 :redirected nil :headers (:content-type \"...\" ...)
+                 :text \"...\"); an HTTP error status is a response
+                 too, with :ok nil.  Header names are lower case.
 :catch FUNCTION  (MESSAGE), when there was no response at all
 
 Returns the request, for `react-cancel'.  `react-response-json' reads a
 JSON body."
   (let ((then (plist-get options :then))
         (catch (plist-get options :catch))
-        (file (plist-get options :file)))
+        (file (plist-get options :file))
+        (form (plist-get options :form)))
     (react-host-call
      "fetch"
      (append (list :url url :method (or (plist-get options :method) "GET")
                    :headers (plist-get options :headers) :body (plist-get options :body))
-             (and file (list :file (react--host-dom-id file))))
+             (and file (list :file (react--host-dom-id file)))
+             (and form (list :form (react--form-fields form)))
+             (cl-loop for key in react--fetch-options
+                      for value = (plist-get options key)
+                      when value
+                      append (list key (if (and (symbolp value) (not (eq value t))) (symbol-name value) value))))
      (lambda (ok value)
        (cond ((and ok then) (funcall then value))
              (ok nil)
@@ -818,6 +850,14 @@ JSON body."
 (defun react-response-json (response)
   "The body of RESPONSE as Lisp data: objects are plists, arrays vectors."
   (json-parse-string (plist-get response :text) :object-type 'plist :null-object nil :false-object nil))
+
+(defun react-response-bytes (response)
+  "The body of RESPONSE, fetched with :as \='base64, as a unibyte string."
+  (base64-decode-string (plist-get response :base64)))
+
+(defun react-response-header (response name)
+  "The header NAME (a string, any case) of RESPONSE, or nil."
+  (plist-get (plist-get response :headers) (intern (concat ":" (downcase name)))))
 
 ;;;; async / await
 
@@ -833,8 +873,9 @@ JSON body."
 
 (defun react-fetch-async (url &rest options)
   "An awaitable for `react-fetch': its value is the response.
-OPTIONS are :method, :headers, :body and :file.  Without a response the await
-signals `react-async-error'; an HTTP error status is a response."
+OPTIONS are those of `react-fetch' but :then and :catch.  Without a
+response the await signals `react-async-error'; an HTTP error status is
+a response."
   (lambda (resolve reject)
     (apply #'react-fetch url :then resolve :catch reject options)))
 

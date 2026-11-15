@@ -209,6 +209,16 @@ function storedEntries() {
   return entries;
 }
 
+// The options of fetch that `react-fetch' passes on as they are.
+const FETCH_OPTIONS = ["credentials", "cache", "redirect", "mode", "keepalive", "priority", "referrerPolicy"];
+
+function base64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
 function createHost(reply, fetchFunction) {
   const pending = new Map();   // request -> cancel function
   const commands = {
@@ -220,19 +230,36 @@ function createHost(reply, fetchFunction) {
       const timer = setInterval(() => reply(request, true, null), milliseconds);
       return () => clearInterval(timer);
     },
-    fetch(request, { url, method, headers, body, file }, nodeOf) {
+    fetch(request, { url, method, headers, body, file, form, as, ...options }, nodeOf) {
       const controller = new AbortController();
+      const fail = (message) => {
+        Promise.resolve().then(() => { if (pending.delete(request)) reply(request, false, message); });
+        return () => {};
+      };
       // :file names a file input; its first file is the body, as it is.
       if (file !== undefined && file !== null) {
         body = nodeOf(file)?.files?.[0];
-        if (!body) {
-          Promise.resolve().then(() => { if (pending.delete(request)) reply(request, false, "No file is chosen"); });
-          return () => {};
+        if (!body) return fail("No file is chosen");
+      }
+      // :form: [[name, value]...], a value a string or {file: DOM id}: the
+      // body is multipart/form-data, with every file of that input.
+      if (form) {
+        body = new FormData();
+        for (const [name, value] of form) {
+          if (value && typeof value === "object") {
+            for (const chosen of nodeOf(value.file)?.files || []) body.append(name, chosen);
+          } else body.append(name, value ?? "");
         }
       }
       // Lisp's header names are keywords: content-type, accept, ...
-      fetchFunction(url, { method: method || "GET", headers: headers || {}, body: body ?? undefined, signal: controller.signal })
-        .then(async (response) => ({ status: response.status, ok: response.ok, text: await response.text() }))
+      const init = { method: method || "GET", headers: headers || {}, body: body ?? undefined, signal: controller.signal };
+      for (const name of FETCH_OPTIONS) if (options[name] !== undefined && options[name] !== null) init[name] = options[name];
+      fetchFunction(url, init)
+        .then(async (response) => ({
+          status: response.status, ok: response.ok, url: response.url, redirected: response.redirected,
+          headers: Object.fromEntries(response.headers),
+          ...(as === "base64" ? { base64: base64(await response.arrayBuffer()) } : { text: await response.text() }),
+        }))
         .then((value) => { if (pending.delete(request)) reply(request, true, value); },
               (error) => { if (pending.delete(request)) reply(request, false, error?.message || String(error)); });
       return () => controller.abort();
