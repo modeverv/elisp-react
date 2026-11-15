@@ -39,7 +39,12 @@ function wasmacsBase() {
 }
 
 async function fetchText(url) {
-  const response = await fetch(url, { cache: "no-store" });
+  let response;
+  try {
+    response = await fetch(url, { cache: "no-store" });
+  } catch (error) {
+    throw new Error(`${url}: ${error?.message || error}`);
+  }
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
   return response.text();
 }
@@ -718,6 +723,14 @@ function lispTimeout() {
   return meta && Number.isFinite(value) && value >= 0 ? value : 30_000;
 }
 
+// How long the start may take: <meta name="elisp-react:boot-timeout"
+// content="MILLISECONDS">, 0 for no limit.
+function bootTimeout() {
+  const meta = document.querySelector('meta[name="elisp-react:boot-timeout"]');
+  const value = Number(meta?.content);
+  return meta && Number.isFinite(value) && value >= 0 ? value : 120_000;
+}
+
 function reportError(error) {
   console.error("[elisp-react]", error);
   document.dispatchEvent(new CustomEvent("elisp-react:error", { detail: error }));
@@ -749,6 +762,12 @@ function reportError(error) {
  *   location  "browser": the page's address; "memory": one kept by the host
  *             (the default where the page has none, as in elisp-studio's
  *             preview, about:srcdoc)
+ *   bootTimeout  milliseconds the start may take (default 120000, or <meta
+ *             name="elisp-react:boot-timeout">; 0: no limit)
+ *   signal    an AbortSignal that aborts the start
+ *   onProgress  ({ phase, url, bytes, from }) => void: how the start goes
+ *             ("build id", "download", "emacs", then "lisp" for each
+ *             file); also the event "elisp-react:progress"
  *   timeout   milliseconds Lisp may take to answer an event or a reply
  *             (default 30000, or <meta name="elisp-react:timeout">; 0: no
  *             limit).  Lisp that takes longer (an endless loop) cannot be
@@ -760,12 +779,49 @@ function reportError(error) {
  * says how Emacs gets its own Lisp files: "on demand" (the few it reads) or
  * "all" (the whole package, from a server without range requests).
  */
-export async function start({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.el", import.meta.url), sources = null,
+export function start(options = {}) {
+  // The start, guarded: a time limit (a download that never ends), and a
+  // signal to abort it.  Either way the service is stopped and the start
+  // rejects, saying how far it got.
+  const { bootTimeout: limit = bootTimeout(), signal = null, onProgress = null } = options;
+  const hooks = { emacs: null, phase: "start", url: null };
+  hooks.progress = (step) => {
+    hooks.phase = step.phase;
+    if (step.url) hooks.url = step.url;
+    try { onProgress?.(step); } catch (error) { console.warn("[elisp-react] onProgress", error); }
+    document.dispatchEvent(new CustomEvent("elisp-react:progress", { detail: step }));
+  };
+  let timer = null;
+  const guard = new Promise((_resolve, reject) => {
+    const fail = (error) => { hooks.emacs?.terminate(); reject(error); };
+    if (limit > 0) {
+      timer = setTimeout(() => {
+        const error = new Error(`Emacs did not start within ${limit / 1000} s (it was at: ${hooks.phase}${hooks.url ? `, ${hooks.url}` : ""})`);
+        fail(Object.assign(error, { symbol: "boot-timeout", phase: hooks.phase, url: hooks.url }));
+      }, limit);
+    }
+    if (signal?.aborted) fail(Object.assign(new Error("elisp-react: the start was aborted"), { symbol: "aborted" }));
+    signal?.addEventListener("abort", () => fail(Object.assign(new Error("elisp-react: the start was aborted"), { symbol: "aborted" })));
+  });
+  const booting = boot(options, hooks);
+  booting.catch(() => {});
+  return Promise.race([booting, guard]).finally(() => clearTimeout(timer));
+}
+
+async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.el", import.meta.url), sources = null,
                               fetch: fetchFunction = (...args) => fetch(...args), timeout = lispTimeout(),
                               location: locationMode = "auto", cache = true,
-                              compiled = document.querySelector('meta[name="elisp-react:compiled"]')?.content } = {}) {
-  const { createEmacsEvalService } = await import(new URL("app/src/emacs-eval-client.js", wasmacs).href);
-  const emacs = createEmacsEvalService({ onOutput: (text) => console.log(`[emacs] ${text.trimEnd()}`) });
+                              compiled = document.querySelector('meta[name="elisp-react:compiled"]')?.content } = {},
+              hooks = { progress() {} }) {
+  const clientUrl = new URL("app/src/emacs-eval-client.js", wasmacs).href;
+  let createEmacsEvalService;
+  try {
+    ({ createEmacsEvalService } = await import(clientUrl));
+  } catch (error) {
+    throw new Error(`${clientUrl}: ${error?.message || error}`);
+  }
+  const emacs = createEmacsEvalService({ onOutput: (text) => console.log(`[emacs] ${text.trimEnd()}`), onProgress: hooks.progress });
+  hooks.emacs = emacs;
 
   let dom = null, host = null;
   // Set when Lisp did not answer in time: the service is stopped, and the
@@ -815,6 +871,7 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
     compiled ? fetch(new URL(compiled, location.href)).then((response) => (response.ok ? response.json() : null)).catch(() => null) : null,
   ]);
   const first = await loadLisp(emacs, info.version, new URL(library, location.href).href, libraryText, { cache, manifest });
+  hooks.progress({ phase: "lisp", url: new URL(library, location.href).href, from: first.from });
   const compileLogs = [];
   let previous = first.hash;
   await emacs.call("react--storage-load", storedEntries());
@@ -829,6 +886,7 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   });
   for (const source of sources) {
     const loaded = await loadLisp(emacs, info.version, source.name, source.text, { previous, cache, manifest });
+    hooks.progress({ phase: "lisp", url: source.name, from: loaded.from });
     previous = loaded.hash;
     compileLogs.push({ name: source.name, file: loaded.file, log: loaded.log, from: loaded.from });
   }

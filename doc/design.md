@@ -29,6 +29,8 @@ A first visit still compiles everything on the visitor's CPU. `tools/compile.mjs
 
 Emacs itself is cached by the wasmacs eval service (Cache Storage, keyed by a build id) and downloaded on the first visit only: `temacs.wasm` and the pdmp, about 5 MB as GitHub Pages compresses them. Emacs's own Lisp files (146 MB) are not downloaded as a whole. What `react.el` needs is in the pdmp for the most part; the service fetches a file when Emacs reads it (the five examples together read seven, 0.5 MB), from a server that answers range requests. `start()` says which it was: `files` is `"on demand"`, or `"all"` where the server sends whole files only and the package is downloaded as before.
 
+A start is guarded: it has a time limit (`bootTimeout`, two minutes by default) and may be aborted (`signal`); either stops the eval service, so that a download that never ends does not leave "Loading Emacs…" for ever, and the error says how far the start had got (the last progress step). The steps come from the eval service (`onProgress`: the build id, each download, Emacs starting) and from the host (each Lisp file). Network errors name the URL that failed.
+
 ## Elements
 
 An element is a list `(TAG PROPS CHILD...)`. `TAG` is a symbol: the name of a component if one is defined with that name (`react-define-component` puts the definition on the symbol's property list), otherwise an HTML tag. `PROPS` is a plist and may be left out; it is recognised by starting with a keyword. Strings and numbers are text.

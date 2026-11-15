@@ -73,10 +73,20 @@ Emacs Lisp で書いた React です。
 |---|---|---|
 | `wasmacs` | `elisp-react:wasmacs` | wasmacs の eval service が公開されている場所。 |
 | `timeout` | `elisp-react:timeout` | イベントやページからの答えに Lisp が答えるまでに待つミリ秒（既定 30000。0 で無制限）。それより長くかかる Lisp（たとえば無限ループ）は中断できないので、Emacs を止め、ページはそれ以後何も送らず、シンボル `timeout` のエラーを報告します（`elisp-react:error` と赤い帯）。長い処理は途中でページに戻れます。`react-async` の中で数百件ごとに `(react-await (react-sleep 0))` を入れると、制限はその戻りごとに数え直されます。 |
+| `bootTimeout` | `elisp-react:boot-timeout` | 起動にかけてよいミリ秒（既定 120000。0 で無制限）。止まった起動（終わらないダウンロード）は Emacs を止め、どこまで進んだかを添えて、シンボル `boot-timeout` で失敗します。`signal`（`AbortSignal`）で手で中断できます。 |
+| `onProgress` | | `({ phase, url, bytes, from })`: 起動の進み具合です。`"build id"`、まだブラウザに無い Emacs のファイルごとの `"download"`、`"emacs"`、そしてページのファイルごとの `"lisp"`（`from` は前もってコンパイル済み、保存済み、その場でコンパイル）。同じものが `document` にイベント `elisp-react:progress` として届くので、「読み込み中…」の表示に使えます。 |
 | `location` | | `"browser"` はページのアドレス。`"memory"` はホストが持つアドレスで、`/` から始まり、履歴も持ち、ハッシュのリンクもそこでたどります。既定は `"browser"` で、ページにアドレスが無いとき（elisp-studio のプレビュー、`about:srcdoc`）は `"memory"` です。 |
 | `compiled` | `elisp-react:compiled` | `tools/compile.mjs` で作ったマニフェスト。ソースが一致するファイルは、ページの中でコンパイルしません。 |
 | `cache` | | `false` にすると、起動のたびにすべてのファイルをコンパイルし、何も保存しません（開発用ツールの「再起動」）。 |
 | `library`、`sources`、`fetch` | | `react.el` の URL、ページのスクリプトの代わりに読み込む Lisp、`fetch` の代わりに使う関数（開発用ツール向け）。 |
+
+`elisp-react.js` 自体が読み込めないと（ネットワークが無い、CDN が遮断されている）、エラーの帯も含めて何も動きません。そう知らせたいページは、数行を足せます。
+
+```html
+<script>
+  setTimeout(() => { if (!window.elispReact) document.querySelector("#app").textContent = "このページのスクリプトを読み込めませんでした。"; }, 20000);
+</script>
+```
 
 ## 両側が Emacs
 

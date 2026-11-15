@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>progress</title>
+<div id="app">Loading Emacs…</div>
+<script>
+// Registered before the host starts, so that every step is seen.
+window.steps = [];
+document.addEventListener("elisp-react:progress", (event) => {
+  window.steps.push(event.detail.phase);
+  document.querySelector("#app").textContent = `Loading: ${event.detail.phase}…`;
+});
+</script>
+<script type="text/emacs-lisp">
+(react-mount (jsx (p (:class "done") "started")) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>
