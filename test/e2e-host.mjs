@@ -384,6 +384,21 @@ try {
   await client.send("Emulation.setTimezoneOverride", { timezoneId: "" }, sessionId);
   pass(`intl: Lisp knows the visitor's time zone and has the browser write numbers, relative times, dates and lists, and sort: ${shown}`);
 
+  // ---- a modal dialog ---------------------------------------------------------------
+  await open("dialog");
+  await js("document.querySelector('.open').focus(); document.querySelector('.open').click(); true");
+  await until("document.querySelector('.dialog').matches(':modal')", "Lisp opens the dialog");
+  assert.equal(await js("document.activeElement.className"), "name");
+  await client.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 }, sessionId);
+  await client.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 }, sessionId);
+  await until("document.querySelector('.closed').textContent === '1'", "Escape closes it and Lisp hears :on-close");
+  assert.equal(await js("document.activeElement.className"), "open");
+  await click(".declarative");
+  await until("document.querySelector('.dialog').matches(':modal')", "command=show-modal opens it without Lisp");
+  await click(".done");
+  await until("document.querySelector('.closed').textContent === '2'", "Lisp closes it");
+  pass("dialog: a modal <dialog> opened from Lisp (or by command=show-modal) takes the focus, closes on Escape, tells Lisp, and gives the focus back");
+
   console.log("e2e host passed");
 } finally {
   client?.close();

@@ -237,6 +237,14 @@ By default a component renders again whenever its parent does. A component can d
 | `:pure t` | Render only when a prop or the state changed: strings and numbers by value, everything else (records, lists, functions) by identity. |
 | `(react-changed-p NEW OLD :key ...)`, `(react-shallow-equal A B)` | For `:should-update`: compare selected keys of two plists, or all of them. |
 
+**Dialogs and focus** come from the platform. A `<dialog>` opened with `(react-invoke self "dialog" "showModal")`, or by a button with `:command "show-modal" :commandfor "its-id"` without Lisp, is a real modal: the page behind is inert, the focus goes to its `:autofocus` field and stays inside, Escape closes it, `:on-close` tells Lisp, and the focus returns to the button that opened it. `:inert t` makes part of a page unreachable without a dialog. After a route change, give the new page's heading `:tabindex "-1"` and `react-focus` it, so that a screen reader starts there.
+
+```elisp
+(button (:ref "opener" :on-click (lambda (_event) (react-invoke self "settings" "showModal"))) "Settings")
+(dialog (:ref "settings" :on-close (lambda (_event) (react-set-state self :saved t)))
+  (input (:autofocus t)) (button (:on-click (lambda (_event) (react-invoke self "settings" "close"))) "Done"))
+```
+
 A custom element is written with a Capitalized name that has a hyphen, `(X-widget (:size "2"))`: no component has that name, so it becomes `<x-widget>`. A Capitalized name without a hyphen that is no component is most likely misspelled, or its file is loaded after the one that uses it: it still renders as an unknown element, and the page's console says so, once. Props that are computed (passed on from a parent, say) go in the plain-list form, which `jsx` children may be: `(list 'button (append '(:class "primary") (react-props self :button-props)) "OK")`.
 
 A `lambda` in a render function is a new object at every render, but `:pure` takes two closures of the same `lambda` for the same function when the values they captured are the same (compared one level deep): `(VideoCard (:on-pick (lambda (_event) (pick video))))` skips its render as long as `video` is the same object. A closure that captures something new at every render (a list built in the render) still defeats it; then compare the data props with `react-changed-p`, and let handlers read function props when the event happens (`(funcall (react-props self :on-change) ...)`): a skipped component still receives its new props.
