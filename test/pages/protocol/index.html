@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en" data-elisp-react-manual>
+<meta charset="utf-8">
+<title>protocol</title>
+<div id="app">Loading Emacs…</div>
+<script type="module">
+import { start } from "/js/elisp-react.js";
+// A react.el of another release than this elisp-react.js.
+window.startError = start({ library: "/test/pages/protocol/old-react.el", sources: [] }).then(() => "started", (error) => error.message);
+</script>
+</html>

@@ -132,6 +132,10 @@
   effects     ; alist: effect key -> (DEPS . CLEANUP), see `react-effect'
   svg)        ; it renders inside an <svg>
 
+(defconst react--protocol 2
+  "The version of the operations and commands between this file and
+js/elisp-react.js.  The host refuses a react.el of another version.")
+
 (defvar react--next-dom-id 0)
 (defvar react--ops nil "DOM operations for the host, newest first.")
 (defvar react--hosts (make-hash-table) "DOM id -> mounted element.")

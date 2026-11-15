@@ -57,6 +57,8 @@ The element above is plain data built with backquote. The `jsx` macro writes the
 (react-mount (jsx (Counter (:start 3))) "#app")
 ```
 
+**Pinning a release.** `js/elisp-react.js` on the site is whatever `main` is. Releases are tagged `vX.Y.Z`, and the site keeps each one for good under `v/X.Y.Z/`: a page that loads `https://modeverv.github.io/elisp-react/v/0.1.0/js/elisp-react.js` gets that release and its `react.el`. The two check that they belong together (a protocol number) and say so if they do not. Emacs itself comes from the wasmacs site, which moves too; a page that wants it fixed serves its own copy (elisp-studio's `fetch-emacs.sh` makes one) and names it with `<meta name="elisp-react:wasmacs">`.
+
 ## Settings
 
 A page that starts by itself takes its settings from `<meta>` elements. A page that starts by hand (`data-elisp-react-manual` on `<html>`) passes them to `start()`:
