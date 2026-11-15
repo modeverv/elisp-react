@@ -180,7 +180,7 @@ npm run test:server  # サーバーのサンプル（Emacs のサーバープロ
 
 ## 制限
 
-これは実験で、フレームワークではありません。戻ってこないハンドラは中断できません。`async` の本体は途中でキャンセルできません。Emacs は初回に約5MBをダウンロードします（Emacs 本体です。付属の Lisp ファイル 146MB からは、ページが読んだものだけを取得します。あとから `require` したライブラリは、そのときに取得します）。key つきの1000行の再描画には約130ミリ秒、行を `:pure` にすると約30ミリ秒かかります。`examples/server/` のサーバーはサンプルの一部で、公開するためのものではありません（足りないものは「両側が Emacs」にあります）。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
+これは実験で、フレームワークではありません。戻ってこないハンドラは中断できません。`async` の本体は途中でキャンセルできません。Emacs は初回に約5MBをダウンロードします（Emacs 本体です。付属の Lisp ファイル 146MB からは、ページが読んだものだけを取得します。あとから `require` したライブラリは、そのときに取得します）。key つきの1000行の再描画には約130ミリ秒、行を `:pure` にすると約30ミリ秒かかります。Emacs はタブごとにメモリを使います。起動時に線形メモリを 1GiB 確保し（最大 2GiB）、[Parens](https://github.com/modeverv/elisp-react-youtube-similar) のようなページはデスクトップの Chrome でレンダラーのメモリが 265〜335MB でした。Emacs を除いて保存した同じページは 136MB です。実機のスマートフォンではまだ試していません（[wasmacs#12](https://github.com/modeverv/wasmacs/issues/12)）。`examples/server/` のサーバーはサンプルの一部で、公開するためのものではありません（足りないものは「両側が Emacs」にあります）。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
 
 ## ライセンス
 
