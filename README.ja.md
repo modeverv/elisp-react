@@ -199,7 +199,9 @@ Lisp はページに応答している間しか動きません。待つことも
 
 | | |
 |---|---|
-| `(react-async BODY...)`、`(react-await AWAITABLE)` | ループや条件分岐の中でも await できます。処理が失敗すると、その await の位置で `react-async-error` が発生します。await のあとでは state が変わっている可能性があるので、読み直してください。 |
+| `(react-async BODY...)`、`(react-await AWAITABLE)` | ループや条件分岐の中でも await できます。処理が失敗すると、その await の位置で `react-async-error` が発生します。await のあとでは state が変わっている可能性があるので、読み直してください。`react-async` はタスクを返し、タスクも await できます（値は本体の値です）。`lambda`、`with-temp-buffer`、`save-excursion`、`mapcar` などの中の await は、本体をコンパイルするときにエラーになります（generator.el がその中まで書き換えないため）。await するループの中で作るクロージャには、自分の束縛が要ります: `(let ((item item)) (lambda () item))`。 |
+| `(react-task-cancel TASK)` | タスクを止めます。待っているリクエストを取り消し、本体はそれ以上進まず、await している側には `react-async-error`（"cancelled"）が届きます。部品が外されるときにタスクを止めるには `react-effect` を使います: `(react-effect self 'load (react-props self :id) (lambda () (let ((task (react-async ...))) (lambda () (react-task-cancel task)))))`。 |
+| `(react-all AWAITABLES)`、`(react-race AWAITABLES)` | いくつか（関数かタスク）をまとめて待つ await できるもの。すべての値を順に返し、1つでも失敗するとすぐ失敗します。または、最初の答えを返します。 |
 | `(react-sleep MS)`、`(react-fetch-async URL OPTIONS...)`（`react-fetch` の引数から `:then` と `:catch` を除いたもの） | await できるものです。`(RESOLVE REJECT)` を受け取り、どちらかを1回呼ぶ関数なら何でも await できます。 |
 
 いくつもの部品や、同じページへの何度もの訪問が読むデータは、キーごとに保ちます。
