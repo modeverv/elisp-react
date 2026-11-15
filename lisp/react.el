@@ -1211,6 +1211,23 @@ the DOM operations that follow."
       (funcall (car entry) ok value)))
   (react-flush))
 
+(defun react-host-replies (replies)
+  "Several answers of the host, REPLIES, a vector of [REQUEST OK VALUE]:
+what arrived while Lisp was busy.  Runs each waiting function, then
+renders once.  Returns the DOM operations that follow."
+  (let (failure)
+    (mapc (lambda (reply)
+            (let ((entry (gethash (aref reply 0) react--requests)))
+              (when entry
+                (unless (cdr entry) (remhash (aref reply 0) react--requests))
+                (condition-case err (funcall (car entry) (aref reply 1) (aref reply 2))
+                  (error (unless failure (setq failure err)))))))
+          replies)
+    ;; One failure does not cost the others their answer; it is reported,
+    ;; and what they changed renders at the next flush.
+    (when failure (signal (car failure) (cdr failure))))
+  (react-flush))
+
 (defun react-set-timeout (milliseconds function)
   "Call FUNCTION, without arguments, once after MILLISECONDS.
 Returns the timer, for `react-clear-timer'."

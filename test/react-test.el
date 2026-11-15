@@ -660,6 +660,26 @@
       (react-host-reply interval t nil)         ; too late
       (should (= fired 21)))))
 
+(ert-deftest react-test-replies-together ()
+  "Answers that arrived together run, then one render."
+  (react-test--fresh
+    (let (app renders)
+      (react-define-component 'react-test-ticks
+        :initial-state (lambda (_props) (list :n 0))
+        :render (lambda (self) (setq app self) (push 'render renders) `(p () ,(format "%d" (react-state self :n)))))
+      (react-mount '(react-test-ticks) "#app")
+      (react-flush)
+      (setq renders nil)
+      (let ((timers (cl-loop repeat 3 collect (react-set-timeout 0 (lambda () (react-set-state app :n (1+ (react-state app :n)))))))
+            (broken (react-set-timeout 0 (lambda () (error "One broke")))))
+        (react-flush)
+        (react-host-replies (vconcat (mapcar (lambda (timer) (vector timer t nil)) (seq-take timers 2))))
+        (should (equal (react-html "#app") "<p>2</p>"))
+        (should (equal renders '(render)))
+        ;; One that fails does not keep the others from running.
+        (should-error (react-host-replies (vector (vector broken t nil) (vector (nth 2 timers) t nil))))
+        (should (equal (react-html "#app") "<p>3</p>"))))))
+
 (ert-deftest react-test-fetch ()
   "A response, an HTTP error and a failure reach the right function."
   (react-test--fresh
