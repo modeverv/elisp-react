@@ -8,4 +8,6 @@ exec "${emacs_bin}" --batch -Q -L "${here}/lisp" -L "${here}/test" \
   --eval '(setq byte-compile-error-on-warn t)' \
   --eval "(unless (byte-compile-file \"${here}/lisp/react.el\") (kill-emacs 1))" \
   --eval "(delete-file \"${here}/lisp/react.elc\")" \
-  -l react-test -f ert-run-tests-batch-and-exit
+  --eval "(unless (byte-compile-file \"${here}/lisp/react-testing.el\") (kill-emacs 1))" \
+  --eval "(delete-file \"${here}/lisp/react-testing.elc\")" \
+  -l react-test -l react-testing-test -f ert-run-tests-batch-and-exit

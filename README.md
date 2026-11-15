@@ -254,6 +254,27 @@ Lisp answers an event after the browser has acted on it, too late to stop a link
 
 `:keys` (only these keys), `:self` (only events of the element itself, not of its children), `:prevent` (`preventDefault`), `:stop` (`stopPropagation`: the parents' listeners do not hear it), `:capture`, `:passive`, and `:throttle MS` (one event per `MS` at most, the last one kept).
 
+## Testing an application
+
+`lisp/react-testing.el` is a page made of Lisp data: it applies the operations Lisp returns, as the browser would, so an application's tests run in any Emacs, without a browser:
+
+```elisp
+(require 'react-testing)
+(ert-deftest counter-counts ()
+  (react-testing-load "counter.el")                       ; or (react-testing-render '(Counter))
+  (react-testing-click (react-testing-find :class "increment"))
+  (should (equal (react-testing-text (react-testing-find :class "count")) "Apples: 4")))
+```
+
+| | |
+|---|---|
+| `react-testing-render`, `react-testing-load`, `react-testing-reset`, `react-testing-storage`, `react-testing-location` | Start afresh: render an element, or load a file that mounts itself; values in the page's storage and its address beforehand. |
+| `react-testing-find`, `react-testing-find-all` (`:tag :class :text :attribute`), `react-testing-text`, `react-testing-attribute`, `react-testing-property`, `react-testing-html` | Find elements and read them. |
+| `react-testing-click`, `react-testing-input`, `react-testing-key`, `react-testing-submit`, `react-testing-dispatch` | Do what a visitor does; events go up through the parents as in a browser. |
+| `react-testing-answer-fetch STATUS TEXT`, `react-testing-answer COMMAND VALUE`, `react-testing-time-passes`, `react-testing-requests`, `react-testing-told` | Be the page for what Lisp asked: answer a fetch, fire the timers, look at what is waiting and what Lisp told the page. |
+
+`test/react-testing-test.el` tests three of the examples this way. To run the tests in the page's own Emacs 30.2 rather than a native one, wasmacs has `tools/scripts/ert.mjs`.
+
 ## Changing a running page
 
 A component that is defined again while it is on the page takes the new definition and renders again with the state its instances have. The host exposes this as `window.elispReact.load(name, text)`, which compiles and evaluates changed source in the running page. When the source loaded but the render that follows failed, it resolves with `renderError` as well: the new definitions are in place. A good render clears the error box. [elisp-studio](https://github.com/modeverv/elisp-studio) builds on it: Emacs in the browser edits the files, and the application next to it changes at every save, without a reload.
