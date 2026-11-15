@@ -14,6 +14,8 @@ What it comes to:
 
 [日本語](README.ja.md)
 
+The complete API, written so that a coding agent can work from it without guessing: [doc/api.md](doc/api.md).
+
 ## A page
 
 ```html

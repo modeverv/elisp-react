@@ -14,6 +14,8 @@ Emacs Lisp で書いた React です。
 
 [English](README.md)
 
+API の完全な仕様は [doc/api.md](doc/api.md)（英語）にあります。コーディングエージェントが推測せずにアプリケーションを書けるように書いたものです。
+
 ## ページの書き方
 
 ```html
