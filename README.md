@@ -128,6 +128,7 @@ An element is plain Lisp data: `"text"`, `(TAG PROPS CHILD...)` or `(TAG CHILD..
 | | |
 |---|---|
 | `(react-define-component NAME :render F :initial-state F :did-mount F :did-update F :will-unmount F)` | Define a component. `:render` gets the instance and returns one element. An element `(NAME PROPS CHILD...)` renders it; its children arrive as the prop `:children`. `:did-update` gets the instance, the previous props and the previous state. |
+| `:did-catch (lambda (self error) ...)` | An error boundary: a component below failed to render. That component renders nothing, and this one usually sets state to show something else. Without a boundary the error reaches the page as `react-render-error`, which names the component and those above it (`Card < Page < App`); what was waiting to render renders at the next event. |
 | `(react-effect SELF KEY DEPS F)` | In a render: run `F` after the render when `DEPS` (any data, compared with `equal`) changed since it last ran; a function that `F` returns cleans up before the next run and when the component is taken off. Stateful logic becomes an ordinary function that several components call. `:did-mount`, `:did-update` and `:will-unmount` also take a list of functions. |
 | `(react-props SELF [KEY])`, `(react-state SELF [KEY])` | The props or the state (plists) of an instance, or one value. |
 | `(react-set-state SELF :key VALUE ...)` | Install a new state plist with these keys changed and render again. Also takes one function from the old state to the changes. Several calls during one event cause one render. |
@@ -233,7 +234,7 @@ Lisp answers an event after the browser has acted on it, too late to stop a link
 
 ## Changing a running page
 
-A component that is defined again while it is on the page takes the new definition and renders again with the state its instances have. The host exposes this as `window.elispReact.load(name, text)`, which compiles and evaluates changed source in the running page. [elisp-studio](https://github.com/modeverv/elisp-studio) builds on it: Emacs in the browser edits the files, and the application next to it changes at every save, without a reload.
+A component that is defined again while it is on the page takes the new definition and renders again with the state its instances have. The host exposes this as `window.elispReact.load(name, text)`, which compiles and evaluates changed source in the running page. When the source loaded but the render that follows failed, it resolves with `renderError` as well: the new definitions are in place. A good render clears the error box. [elisp-studio](https://github.com/modeverv/elisp-studio) builds on it: Emacs in the browser edits the files, and the application next to it changes at every save, without a reload.
 
 [![elisp-studio: a stopwatch keeps running while it is edited in Emacs](https://raw.githubusercontent.com/modeverv/elisp-studio/main/doc/images/demo.gif)](https://github.com/modeverv/elisp-studio)
 

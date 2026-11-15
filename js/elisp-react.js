@@ -736,10 +736,19 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
     emacs, dom, version: info.version, bootMs: info.bootMs, cached: info.cached, files: info.files,
     // Evaluate changed source while the page runs (a development tool).
     // Components that are defined again keep the state of their instances.
-    // Resolves with { file, log } (see loadLisp).
+    // Resolves with { file, log } (see loadLisp); when the source loaded
+    // but the render that follows failed, also with renderError: the new
+    // definitions are in place, and the error box says what failed.  A
+    // good render clears the error box.
     async load(name, text) {
       const loaded = await loadLisp(emacs, info.version, name, text);
-      dom.apply(await emacs.call("react-flush"));
+      try {
+        dom.apply(await emacs.call("react-flush"));
+      } catch (error) {
+        reportError(error);
+        return { ...loaded, renderError: error };
+      }
+      document.querySelector("#elisp-react-error")?.remove();
       return loaded;
     },
     // Call the Lisp function NAME with ARGS (JSON data) and render what it
