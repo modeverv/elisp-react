@@ -28,8 +28,10 @@
 ;; PROPS is a plist with keyword keys.  For a DOM element:
 ;;
 ;;   :on-click FUNCTION    an event listener; FUNCTION gets the event, a
-;;                         plist (:type "click" :value ... :checked ... :key ...
-;;                         :files [(:name ... :size ... :type ...)] for a file input)
+;;                         plist (:type "click" :value :checked :key :code
+;;                         :alt :ctrl :meta :shift :repeat :composing :button
+;;                         :x :y :target, :files [(:name :size :type)] for a
+;;                         file input, :form [[NAME VALUE]...] for a submit)
 ;;   :value :checked       DOM properties (controlled inputs)
 ;;   :style                a string, or a plist (:color "red" :margin-top "4px")
 ;;   :key                  not rendered; identifies a child among its
@@ -802,6 +804,19 @@ Runs the element's listener and returns the DOM operations that follow."
                              (plist-get (react--host-props host) (intern (concat ":on-" name)))))))
     (when handler (funcall handler event)))
   (react-flush))
+
+;;;; Events
+
+(defun react-form-value (event name)
+  "The value of the field NAME in the form that EVENT submitted, or nil.
+A file field gives the file's name."
+  (let ((field (cl-find-if (lambda (field) (equal (aref field 0) name)) (plist-get event :form))))
+    (and field (aref field 1))))
+
+(defun react-form-values (event name)
+  "Every value of the field NAME (checkboxes, a multiple select)."
+  (delq nil (mapcar (lambda (field) (and (equal (aref field 0) name) (aref field 1)))
+                    (plist-get event :form))))
 
 ;;;; The page: DOM nodes
 

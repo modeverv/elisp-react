@@ -98,14 +98,32 @@ function createDom(dispatch, host) {
   // What Lisp gets to know about an event.
   const describe = (event) => {
     const target = event.target;
+    const point = event.touches?.[0] || event.changedTouches?.[0] || event;
+    let owner = target;
+    while (owner && owner.__elispReactId === undefined) owner = owner.parentNode;
     return {
       type: event.type,
       value: typeof target?.value === "string" ? target.value : null,
       checked: typeof target?.checked === "boolean" ? target.checked : null,
       key: typeof event.key === "string" ? event.key : null,
+      code: typeof event.code === "string" ? event.code : null,
+      alt: Boolean(event.altKey), ctrl: Boolean(event.ctrlKey), meta: Boolean(event.metaKey), shift: Boolean(event.shiftKey),
+      repeat: Boolean(event.repeat),
+      // An input method is still composing: the key is not the visitor's
+      // last word (Enter that confirms a conversion).
+      composing: Boolean(event.isComposing),
+      button: typeof event.button === "number" ? event.button : null,
+      x: typeof point.clientX === "number" ? point.clientX : null,
+      y: typeof point.clientY === "number" ? point.clientY : null,
+      // The node (as Lisp numbers it) where the event happened.
+      target: owner?.__elispReactId ?? null,
       // A file input: what the visitor chose.  The files themselves stay in
       // the page; `react-fetch' can send one (:file).
       files: target?.files ? [...target.files].map((file) => ({ name: file.name, size: file.size, type: file.type })) : null,
+      // A submitted form: its fields, [[name, value]...] (a file by its name).
+      form: event.type === "submit" && target instanceof HTMLFormElement
+        ? [...new FormData(target, event.submitter || null)].map(([name, value]) => [name, typeof value === "string" ? value : value.name])
+        : null,
     };
   };
 

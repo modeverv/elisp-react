@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>event payload</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Payload
+  :initial-state (lambda (_props) (list :seen ""))
+  :render
+  (lambda (self)
+    (let ((show (lambda (event &rest keys)
+                  (react-set-state self :seen
+                                   (mapconcat (lambda (key) (format "%s=%S" key (plist-get event key))) keys " ")))))
+      (jsx (div
+            (div (:class "area" :on-click (lambda (event) (funcall show event :shift :ctrl :button :x :y :target)))
+                 (span (:class "inner") "inside"))
+            (input (:class "field" :on-keydown (lambda (event) (funcall show event :key :code :alt :composing :repeat))))
+            (form (:class "form" :on-submit (lambda (event)
+                                              (react-set-state self :seen
+                                                               (format "%s %S" (react-form-value event "q")
+                                                                       (react-form-values event "tag")))))
+                  (input (:name "q" :value "括弧"))
+                  (input (:name "tag" :type "checkbox" :value "a" :checked t))
+                  (input (:name "tag" :type "checkbox" :value "b" :checked t))
+                  (button "send"))
+            (p (:class "seen") (react-state self :seen)))))))
+(react-mount '(Payload) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>
