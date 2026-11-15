@@ -906,6 +906,42 @@
       (react-query-set '("videos" "home") "mine")
       (should (equal (react-html "#app") "<div><p>success mine</p><p>success mine</p></div>")))))
 
+(ert-deftest react-test-context ()
+  "A provided value reaches :pure components below, and they follow it."
+  (react-test--fresh
+    (let (app (renders 0))
+      (react-define-component 'react-test-label
+        :pure t
+        :render (lambda (self)
+                  (cl-incf renders)
+                  `(span () ,(format "%s/%s" (react-context self 'language "none")
+                                     (react-context self 'theme "plain")))))
+      (react-define-component 'react-test-middle
+        :pure t
+        :render (lambda (_self) '(p () (react-test-label))))
+      (react-define-component 'react-test-context-app
+        :initial-state (lambda (_props) (list :language "ja"))
+        :render (lambda (self)
+                  (setq app self)
+                  `(div () ,(react-provide 'language (react-state self :language)
+                                           (react-provide 'theme "dark" '(react-test-middle)))
+                        (react-test-label))))
+      (react-mount '(react-test-context-app) "#app")
+      (should (equal (react-html "#app") "<div><p><span>ja/dark</span></p><span>none/plain</span></div>"))
+      (setq renders 0)
+      ;; The :pure middle component skips its render; the reader still follows.
+      (react-set-state app :language "en")
+      (should (equal (react-html "#app") "<div><p><span>en/dark</span></p><span>none/plain</span></div>"))
+      (should (= renders 1))
+      ;; The same value again: nothing renders.
+      (react-set-state app :language "en")
+      (react-flush)
+      (should (= renders 1))
+      ;; Force and refresh.
+      (react-refresh 'react-test-label)
+      (react-flush)
+      (should (= renders 3)))))
+
 (ert-deftest react-test-redefinition-keeps-state ()
   "A component that is defined again renders anew with the state its instances have."
   (react-test--fresh

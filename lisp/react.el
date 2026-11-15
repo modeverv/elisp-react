@@ -122,7 +122,9 @@
   mounted     ; nil once unmounted
   rendered-props rendered-state   ; what the last render saw
   refs        ; alist: ref name -> mounted element
-  force)      ; render even if :should-update says no (the definition changed)
+  force       ; render even if :should-update says no (the definition changed)
+  parent      ; the component instance whose render produced it, or nil
+  readers)    ; for a context provider: the instances that read it
 
 (defvar react--next-dom-id 0)
 (defvar react--ops nil "DOM operations for the host, newest first.")
@@ -468,7 +470,9 @@ FUNCTION gets the event, as a plain function prop would.  OPTIONS:
             (initial (plist-get spec :initial-state))
             (instance (react--instance-create
                        :type name :spec spec :props props :depth depth :mounted t
-                       :state (and initial (funcall initial props)))))
+                       :parent react--owner)))
+       ;; :initial-state may read a context: it needs the parent.
+       (setf (react--instance-state instance) (and initial (funcall initial props)))
        (setf (react--instance-rendered-props instance) props
              (react--instance-rendered-state instance) (react--instance-state instance))
        (let ((react--owner instance))
@@ -657,6 +661,62 @@ list of mounted children."
         (setf (react--instance-child instance)
               (react--update (react--instance-child instance) (react--render instance)
                              (1+ (react--instance-depth instance))))))))
+
+;;;; Context
+
+;; A value that a component hands to everything below it, however deep,
+;; without passing it as a prop through every component in between: the
+;; language, the signed-in user, a theme.
+
+(react-define-component 'react-provider
+  :render (lambda (self)
+            (let ((children (react-props self :children)))
+              (when (cdr children)
+                (error "react-provide takes one child; wrap the others in one element"))
+              (car children)))
+  :did-update (lambda (self previous-props _previous-state)
+                (unless (react--same-value-p (react-props self :value) (plist-get previous-props :value))
+                  (setf (react--instance-readers self)
+                        (cl-remove-if-not #'react--instance-mounted (react--instance-readers self)))
+                  (mapc #'react--force-render (react--instance-readers self)))))
+
+(defun react-provide (key value child)
+  "An element that renders CHILD and hands VALUE to the components below
+it under KEY (any Lisp data, compared with `equal').  They read it with
+`react-context', and render again when VALUE changes, :pure or not.
+
+  (react-provide \='language (react-state self :language)
+    (jsx (Page)))"
+  (list 'react-provider (list :context key :value value) child))
+
+(defun react-context (self key &optional default)
+  "The value that the nearest `react-provide' above SELF hands down under
+KEY, or DEFAULT when there is none.  SELF renders again when it changes."
+  (let ((ancestor (react--instance-parent self)))
+    (while (and ancestor
+                (not (and (eq (react--instance-type ancestor) 'react-provider)
+                          (equal (react-props ancestor :context) key))))
+      (setq ancestor (react--instance-parent ancestor)))
+    (if (not ancestor)
+        default
+      (unless (memq self (react--instance-readers ancestor))
+        (push self (react--instance-readers ancestor)))
+      (react-props ancestor :value))))
+
+(defun react-force-update (self)
+  "Render SELF again at the end of this event, whatever :should-update says.
+For a component that reads something other than its props and state."
+  (react--force-render self)
+  nil)
+
+(defun react-refresh (&optional type)
+  "Render every mounted component again (of the component TYPE only, a
+symbol), whatever :should-update says: after global data changed."
+  (react--each-instance
+   (lambda (instance)
+     (when (or (null type) (eq (react--instance-type instance) type))
+       (react--force-render instance))))
+  nil)
 
 ;;;; State
 

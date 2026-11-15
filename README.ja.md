@@ -132,6 +132,8 @@ doc/experiment-notes.md  ここまでの実験で分かったこと
 | `(react-set-state SELF :key VALUE ...)` | 指定したキーを差し替えた新しい state を設定し、再描画します。「古い state を受け取って変更分を返す関数」を1つ渡すこともできます。1回のイベント中に何度呼んでも、描画は1回です。 |
 | `(react-mount ELEMENT SELECTOR)` | CSS セレクタで指定したページ上の要素に描画します。 |
 | `(jsx MARKUP)` | バッククォートなしで要素を作ります。HTML タグで始まる `(TAG ...)` と、大文字で始まる名前の `(Component ...)` がマークアップです。prop の値、子、それ以外のものはすべて Lisp として評価されます。その Lisp の中でマークアップを書くときは、もう一度 `jsx` を使います。 |
+| `(react-provide KEY VALUE CHILD)`、`(react-context SELF KEY [DEFAULT])` | `CHILD` より下のすべての部品に、間の props を通さずに、`KEY` で `VALUE` を渡します（言語、サインインしている人）。部品は `react-context` で読み、値が変わると描き直されます。その部品やその上の部品が `:pure` でも描き直されます。 |
+| `(react-force-update SELF)`、`(react-refresh [TYPE])` | 1つのインスタンス、またはマウントされているすべて（部品 `TYPE` のものだけ）を、`:should-update` にかかわらず描き直します。props と state の外で読んでいるデータが変わったときに使います。 |
 | `(react-plist-with PLIST :key VALUE ...)` | 指定したキーを設定した新しい plist を返します。`PLIST` は変更しません。state の中のレコード用です。 |
 
 Lisp はページに応答している間しか動きません。待つことも、ページの中に手を伸ばすこともできません。そこでコンポーネントはページに依頼を出し、結果が出たらページが Lisp の関数を呼びます。その関数はたいてい `react-set-state` で終わります。

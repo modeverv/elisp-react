@@ -147,6 +147,10 @@ Nothing else is new: `react-sleep` and `react-fetch-async` are awaitables over t
 
 Limits inherited from `generator.el`: an await cannot be inside a `lambda` in the body or in the cleanup forms of `unwind-protect`. There is no cancellation, and an `async` body has no value to wait for (no composition of async functions).
 
+## Context
+
+An instance remembers its parent, the component whose render produced it. `react-provide` is an element of a built-in component, `react-provider`, which renders its one child; `react-context` walks up the parents to the nearest provider of the key and records the reader there. When the provider renders with a different value (`react--same-value-p`), its `:did-update` forces its readers to render, so a value reaches components below a `:pure` one that skipped its render. Readers that are gone are forgotten at that point.
+
 ## Queries
 
 `react-query` keeps data by key in one table, outside the components: a key has a status, its last data and error, the time of its last success, the generation being loaded, and the instances that read it. A component that reads a key for the first time subscribes, and loads it if it is stale; a later render only reads. An answer settles the key if its generation is still current (`react-invalidate` and `react-query-set` start a new one, so answers to older requests are dropped) and makes every mounted subscriber render, past `:should-update` (the same force a redefinition uses). Unmounted subscribers are forgotten when the key is next settled. Keys are never evicted.

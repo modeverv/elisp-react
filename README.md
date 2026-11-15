@@ -132,6 +132,8 @@ An element is plain Lisp data: `"text"`, `(TAG PROPS CHILD...)` or `(TAG CHILD..
 | `(react-set-state SELF :key VALUE ...)` | Install a new state plist with these keys changed and render again. Also takes one function from the old state to the changes. Several calls during one event cause one render. |
 | `(react-mount ELEMENT SELECTOR)` | Render into the page element the CSS selector names. |
 | `(jsx MARKUP)` | Build an element without backquote. `(TAG ...)` with an HTML tag, or `(Component ...)` with a Capitalized name, is markup; prop values, children and everything else are evaluated as Lisp. Markup inside such Lisp needs `jsx` again. |
+| `(react-provide KEY VALUE CHILD)`, `(react-context SELF KEY [DEFAULT])` | Hand `VALUE` to every component below `CHILD` under `KEY`, however deep, without props in between (the language, the signed-in user). A component reads it with `react-context` and renders again when it changes, even if it or a component above it is `:pure`. |
+| `(react-force-update SELF)`, `(react-refresh [TYPE])` | Render one instance, or every mounted one (of a component `TYPE`), again, past `:should-update`: after data they read outside props and state changed. |
 | `(react-plist-with PLIST :key VALUE ...)` | A new plist with these keys set; `PLIST` is not modified. For records in the state. |
 
 Lisp runs only while it answers the page: it cannot wait and cannot reach into the page. A component asks the page instead, and the page calls the Lisp function when there is an answer. Such a function usually ends in `react-set-state`.
