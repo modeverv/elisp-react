@@ -179,6 +179,27 @@ try {
   await client.send("Emulation.setEmulatedMedia", { features: [] }, sessionId);
   pass("page events: a key on the window (filtered, its default prevented), a resize, a media query and an element coming into view reach Lisp");
 
+  // ---- event control -------------------------------------------------------------
+  await open("event-control");
+  await click(".stopped");
+  await click(".bubbles");
+  await click(".link");
+  const keys = await js(`(() => {
+    const field = document.querySelector('.field');
+    const enter = new KeyboardEvent("keydown", { key: "Enter", cancelable: true, bubbles: true });
+    const other = new KeyboardEvent("keydown", { key: "x", cancelable: true, bubbles: true });
+    field.dispatchEvent(enter);
+    field.dispatchEvent(other);
+    return [enter.defaultPrevented, other.defaultPrevented];
+  })()`);
+  assert.deepEqual(keys, [true, false]);
+  await click(".dialog");
+  await click(".backdrop");
+  await until("document.querySelector('.log').textContent.split(' ').length >= 6", "the events arrive");
+  assert.equal(await text(".log"), "stopped bubbles outer link enter outer backdrop");
+  assert.equal(await js("location.hash"), "");
+  pass("event control: :stop keeps parents from hearing, :prevent keeps a link from navigating, :keys filters, :self ignores children");
+
   console.log("e2e host passed");
 } finally {
   client?.close();

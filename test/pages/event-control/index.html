@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>event control</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Control
+  :initial-state (lambda (_props) (list :log nil))
+  :render
+  (lambda (self)
+    (let ((note (lambda (what) (lambda (_event) (react-set-state self :log (cons what (react-state self :log)))))))
+      (jsx (div (:class "outer" :on-click (funcall note "outer"))
+             (button (:class "stopped" :on-click (react-handler (funcall note "stopped") :stop t)) "stopped")
+             (button (:class "bubbles" :on-click (funcall note "bubbles")) "bubbles")
+             (a (:class "link" :href "#/away" :on-click (react-handler (funcall note "link") :prevent t :stop t)) "link")
+             (input (:class "field" :on-keydown (react-handler (funcall note "enter") :keys '("Enter") :prevent t)))
+             (div (:class "backdrop" :on-click (react-handler (funcall note "backdrop") :self t :stop t))
+                  (div (:class "dialog") "dialog"))
+             (p (:class "log") (string-join (reverse (react-state self :log)) " ")))))))
+(react-mount '(Control) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

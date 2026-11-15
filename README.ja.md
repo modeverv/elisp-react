@@ -218,6 +218,15 @@ render 関数の中の `lambda` は描画のたびに新しいオブジェクト
 
 DOM 要素の props: `:on-click`、`:on-input`、`:on-submit` などはイベントリスナーです（関数は `:type :value :checked :key` を持つ plist を受け取ります。ファイル入力では、`(:name :size :type)` のベクタである `:files` も付きます）。`:value` と `:checked` は DOM プロパティなので、入力欄は controlled になります。`:style` は文字列か plist です。それ以外は属性になります（`nil` で削除、`t` で空の属性）。 ホストはインラインの `on*` 属性と `srcdoc` を省き、URL 属性のスクリプト URL を削除して描画を続けます。イベントには Lisp の `:on-...` コールバックを使ってください。ページ作者の Lisp と意図して作る script 要素は信頼するコードです（[DOM の境界](doc/design.md#operations)）。
 
+Lisp がイベントに答えるのはブラウザが動いた後なので、リンクやキーを止めるには遅すぎます。ページがすべきことを前もって伝えるリスナーが `react-handler` です。
+
+```elisp
+(input (:on-keydown (react-handler #'search :keys '("Enter") :prevent t)))
+(div (:class "backdrop" :on-click (react-handler #'close-dialog :self t)) ...)
+```
+
+`:keys`（そのキーだけ）、`:self`（子ではなく要素自身のイベントだけ）、`:prevent`（`preventDefault`）、`:stop`（`stopPropagation`。親のリスナーには届きません）、`:capture`、`:passive`、`:throttle MS`（`MS` ごとに多くても1回。最後のイベントは残ります）が使えます。
+
 ## 動いているページを書き換える
 
 ページに表示中のコンポーネントを定義し直すと、新しい定義に入れ替わり、各インスタンスは今の state のまま再描画されます。土台はこれを `window.elispReact.load(name, text)` として公開しています。変更したソースを、動いているページの中でコンパイルして評価します。[elisp-studio](https://github.com/modeverv/elisp-studio) はこの上に作られています。ブラウザの中の Emacs でファイルを編集すると、隣で動いているアプリケーションが、保存のたびにリロードなしで変わります。

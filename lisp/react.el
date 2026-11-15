@@ -331,6 +331,43 @@ The value is the same plain list a backquote would build."
 
 ;;;; DOM element props
 
+(cl-defstruct (react-handler (:constructor react--handler-create) (:copier nil))
+  function options)
+
+(defun react-handler (function &rest options)
+  "A listener prop that the page acts on before Lisp answers.
+FUNCTION gets the event, as a plain function prop would.  OPTIONS:
+
+:keys LIST     only events of these keys (\"Enter\" \"/\")
+:self t        only events of this element, not of its children
+:prevent t     preventDefault: the browser does not follow the link,
+               type the key, submit, scroll ...
+:stop t        stopPropagation: listeners of the parents do not hear it
+:capture t     hear it on the way down, before the children
+:passive t     tell the browser it will not be prevented (smooth scroll)
+:throttle MS   at most one event per MS milliseconds; the last of a
+               burst is not lost
+
+  (input (:on-keydown
+          (react-handler #\='submit-search :keys \='(\"Enter\") :prevent t)))"
+  (react--handler-create :function function :options options))
+
+(defun react--listener-function (value)
+  (if (react-handler-p value) (react-handler-function value) value))
+
+(defun react--listener-options (value)
+  "The options of the listener prop VALUE for the host, or nil."
+  (when (react-handler-p value)
+    (let ((options (react-handler-options value)) out)
+      (while options
+        (let ((key (car options)) (option (cadr options)))
+          (when (memq key '(:keys :self :prevent :stop :capture :passive :throttle))
+            (setq out (plist-put out key (cond ((eq key :keys) (vconcat option))
+                                               ((eq key :throttle) option)
+                                               (t (and option t)))))))
+        (setq options (cddr options)))
+      out)))
+
 (defun react--event-name (key)
   "\"click\" for :on-click; nil when KEY is not a listener prop."
   (let ((name (symbol-name key)))
@@ -357,7 +394,9 @@ The value is the same plain list a backquote would build."
   "Put the prop KEY with VALUE on the DOM node DOM-ID."
   (cond ((memq key '(:key :ref)))
         ((react--event-name key)
-         (react--emit (if value "listen" "unlisten") dom-id (react--event-name key)))
+         (if value
+             (react--emit "listen" dom-id (react--event-name key) (react--listener-options value))
+           (react--emit "unlisten" dom-id (react--event-name key))))
         ((memq key '(:value :checked))
          (react--emit "prop" dom-id (substring (symbol-name key) 1)
                       (if (eq key :checked) (and value (not (eq value :false)) t) (react--text-of (or value "")))))
@@ -370,9 +409,10 @@ The value is the same plain list a backquote would build."
     (while plist
       (let ((key (car plist)) (value (cadr plist)))
         (cond ((react--event-name key)
-               ;; Only whether there is a listener matters to the DOM; the
-               ;; function is looked up when the event arrives.
-               (unless (eq (null value) (null (plist-get old key)))
+               ;; Only whether there is a listener, and its options, matter
+               ;; to the DOM; the function is looked up when the event arrives.
+               (unless (and (eq (null value) (null (plist-get old key)))
+                            (equal (react--listener-options value) (react--listener-options (plist-get old key))))
                  (react--set-prop dom-id key value)))
               ;; What the user typed is not in OLD: say it again.
               ((memq key '(:value :checked)) (react--set-prop dom-id key value))
@@ -743,7 +783,7 @@ The value is a vector of operations for the host, each a vector:
 
   [\"create\" ID TAG]  [\"text\" ID STRING]  [\"set-text\" ID STRING]
   [\"attr\" ID NAME VALUE]  [\"prop\" ID NAME VALUE]
-  [\"listen\" ID EVENT]  [\"unlisten\" ID EVENT]
+  [\"listen\" ID EVENT OPTIONS]  [\"unlisten\" ID EVENT]
   [\"insert\" PARENT-ID ID BEFORE-ID]  [\"replace\" OLD-ID ID]  [\"remove\" ID]
   [\"mount\" SELECTOR ID]
   [\"invoke\" ID METHOD]                 call a method of the DOM node
@@ -758,7 +798,8 @@ The value is a vector of operations for the host, each a vector:
   "The DOM node DOM-ID received the event NAME.  EVENT is a plist.
 Runs the element's listener and returns the DOM operations that follow."
   (let* ((host (gethash dom-id react--hosts))
-         (handler (and host (plist-get (react--host-props host) (intern (concat ":on-" name))))))
+         (handler (and host (react--listener-function
+                             (plist-get (react--host-props host) (intern (concat ":on-" name)))))))
     (when handler (funcall handler event)))
   (react-flush))
 
