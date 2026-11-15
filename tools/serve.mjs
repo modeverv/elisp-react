@@ -12,7 +12,11 @@ import { serveDirectory } from "./static-server.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 const wasmacsDocs = process.env.WASMACS_DOCS || `${root}/../wasmacs/docs`;
-const site = await serveDirectory(root, { port: Number(process.env.PORT || 5180) });
+const site = await serveDirectory(root, {
+  port: Number(process.env.PORT || 5180),
+  // The native server example writes private notes here. They are not assets.
+  excludePaths: ["examples/server/data"],
+});
 let query = "";
 if (existsSync(`${wasmacsDocs}/app/src/emacs-eval-client.js`)) {
   // "localhost" for the pages, "127.0.0.1" for wasmacs: two origins, as in production.
