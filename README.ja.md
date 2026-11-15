@@ -237,6 +237,14 @@ Lisp はページに応答している間しか動きません。待つことも
 | `:pure t` | props か state が変わったときだけ描画します。文字列と数値は値で、それ以外（レコード、リスト、関数）は同一のオブジェクトかどうかで比べます。 |
 | `(react-changed-p NEW OLD :key ...)`、`(react-shallow-equal A B)` | `:should-update` 用です。2つの plist の指定したキーだけ、または全部を比べます。 |
 
+**ダイアログとフォーカス**はプラットフォームのものを使います。`(react-invoke self "dialog" "showModal")` で開いた `<dialog>`、または Lisp を使わず `:command "show-modal" :commandfor "その-id"` を持つボタンで開いた `<dialog>` は、本物のモーダルです。後ろのページは操作できなくなり、フォーカスは `:autofocus` の欄に移って中に留まり、Esc で閉じると `:on-close` が Lisp に伝え、フォーカスは開いたボタンに戻ります。`:inert t` は、ダイアログ無しでページの一部を操作できなくします。経路が変わった後は、新しいページの見出しに `:tabindex "-1"` を付けて `react-focus` すると、スクリーンリーダーがそこから読み始めます。
+
+```elisp
+(button (:ref "opener" :on-click (lambda (_event) (react-invoke self "settings" "showModal"))) "Settings")
+(dialog (:ref "settings" :on-close (lambda (_event) (react-set-state self :saved t)))
+  (input (:autofocus t)) (button (:on-click (lambda (_event) (react-invoke self "settings" "close"))) "Done"))
+```
+
 カスタム要素は、ハイフンを含む大文字で始まる名前で書きます: `(X-widget (:size "2"))`。その名前の部品は無いので `<x-widget>` になります。ハイフンを含まない大文字で始まる名前で部品が無いものは、たいてい綴りの間違いか、使うファイルより後に読み込まれたファイルの部品です。未知の要素として描かれ、ページのコンソールに一度だけそう表示されます。計算した props（親から受け取ってそのまま渡すものなど）は、ふつうのリストの形で書きます。`jsx` の子にもできます: `(list 'button (append '(:class "primary") (react-props self :button-props)) "OK")`。
 
 render 関数の中の `lambda` は描画のたびに新しいオブジェクトになりますが、`:pure` は、同じ `lambda` から作られ、取り込んだ値が同じ（一段だけ比べます）2つのクロージャを同じ関数とみなします。`(VideoCard (:on-pick (lambda (_event) (pick video))))` は、`video` が同じオブジェクトである限り描画を省きます。描画のたびに新しいもの（描画の中で作ったリストなど）を取り込むクロージャでは効かないので、その場合は `react-changed-p` でデータの prop だけを比べ、ハンドラの中では関数の prop をイベント時に読みます（`(funcall (react-props self :on-change) ...)`）。描画を省いたコンポーネントにも、新しい props は渡されています。

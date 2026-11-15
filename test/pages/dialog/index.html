@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>dialog</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Settings
+  :initial-state (lambda (_props) (list :closed 0))
+  :render
+  (lambda (self)
+    (jsx (div
+          (button (:class "open" :ref "opener" :on-click (lambda (_event) (react-invoke self "dialog" "showModal"))) "settings")
+          (button (:class "declarative" :command "show-modal" :commandfor "settings") "settings, without Lisp")
+          (dialog (:id "settings" :ref "dialog" :class "dialog"
+                   :on-close (lambda (_event) (react-set-state self :closed (1+ (react-state self :closed)))))
+                  (input (:class "name" :autofocus t))
+                  (button (:class "done" :on-click (lambda (_event) (react-invoke self "dialog" "close"))) "done"))
+          (p (:class "closed") (format "%d" (react-state self :closed)))))))
+(react-mount '(Settings) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>
