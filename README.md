@@ -57,6 +57,24 @@ The element above is plain data built with backquote. The `jsx` macro writes the
 (react-mount (jsx (Counter (:start 3))) "#app")
 ```
 
+## Settings
+
+A page that starts by itself takes its settings from `<meta>` elements. A page that starts by hand (`data-elisp-react-manual` on `<html>`) passes them to `start()`:
+
+```html
+<html data-elisp-react-manual>
+<script type="module">
+  import { start } from "https://modeverv.github.io/elisp-react/js/elisp-react.js";
+  window.elispReact = { ready: start({ timeout: 10000 }) };
+</script>
+```
+
+| `start({...})` | `<meta name="...">` | |
+|---|---|---|
+| `wasmacs` | `elisp-react:wasmacs` | Where the wasmacs eval service is published. |
+| `timeout` | `elisp-react:timeout` | Milliseconds Lisp may take to answer an event or an answer from the page (default 30000; 0: no limit). Lisp that takes longer, an endless loop say, cannot be interrupted: Emacs is stopped, the page sends it nothing more, and an error with the symbol `timeout` is reported (`elisp-react:error`, the red box). Long work can give the page back now and then: inside `react-async`, `(react-await (react-sleep 0))` every few hundred items; the limit counts from each such return. |
+| `library`, `sources`, `fetch` | | `react.el`'s URL; Lisp to load instead of the page's scripts; a function to use instead of `fetch` (for development tools). |
+
 ## Emacs on both ends
 
 `examples/server/` is an application without any JavaScript or build step of its own: a native Emacs process is the web server and keeps the data, the Emacs in the browser draws the page, and they exchange printed Lisp data instead of JSON.
@@ -97,6 +115,7 @@ examples/async/        an interval, a timeout, a countdown and a fetch written w
 examples/server/       Emacs on both ends: a native Emacs is the web server and keeps the data
 test/react-test.el     tests of the reconciler with a native Emacs, no browser
 test/e2e.mjs           the examples in headless Chrome
+test/e2e-host.mjs      what the host does for Lisp (test/pages/), in headless Chrome
 doc/design.md          how it works
 doc/experiment-notes.md  what the experiment shows so far (Japanese)
 ```
@@ -173,6 +192,7 @@ A component that is defined again while it is on the page takes the new definiti
 npm run serve        # http://localhost:5180/examples/counter/
 npm run test:lisp    # the reconciler, with a native Emacs
 npm run test:e2e     # the examples in headless Chrome
+npm run test:e2e-host  # the host's features (test/pages/) in headless Chrome
 npm run test:server  # the server example: an Emacs server process and Chrome
 ```
 
@@ -180,7 +200,7 @@ With a wasmacs checkout next to this one (`../wasmacs/docs`), the server and the
 
 ## Limits
 
-This is an experiment, not a framework. A handler that never returns cannot be interrupted, an `async` body cannot be cancelled, and Emacs is a 5 MB download on the first visit (Emacs itself; of its 146 MB of Lisp files a page fetches the few it reads, a library it requires later when it requires it). A render of 1000 keyed rows takes about 130 ms, about 30 ms when the rows are `:pure`. Emacs costs memory in every tab: it reserves 1 GiB of linear memory at start (2 GiB at most), and a page such as [Parens](https://github.com/modeverv/elisp-react-youtube-similar) took 265–335 MB of renderer memory in desktop Chrome, against 136 MB for the same page saved without Emacs. No real phone has been tried ([wasmacs#12](https://github.com/modeverv/wasmacs/issues/12)). The server of `examples/server/` belongs to the example and is not one to publish ("Emacs on both ends" says what it lacks). See [doc/experiment-notes.md](doc/experiment-notes.md).
+This is an experiment, not a framework. A handler that never returns cannot be interrupted (after the [timeout](#settings) Emacs is stopped and the page says so), an `async` body cannot be cancelled, and Emacs is a 5 MB download on the first visit (Emacs itself; of its 146 MB of Lisp files a page fetches the few it reads, a library it requires later when it requires it). A render of 1000 keyed rows takes about 130 ms, about 30 ms when the rows are `:pure`. Emacs costs memory in every tab: it reserves 1 GiB of linear memory at start (2 GiB at most), and a page such as [Parens](https://github.com/modeverv/elisp-react-youtube-similar) took 265–335 MB of renderer memory in desktop Chrome, against 136 MB for the same page saved without Emacs. No real phone has been tried ([wasmacs#12](https://github.com/modeverv/wasmacs/issues/12)). The server of `examples/server/` belongs to the example and is not one to publish ("Emacs on both ends" says what it lacks). See [doc/experiment-notes.md](doc/experiment-notes.md).
 
 ## Licence
 

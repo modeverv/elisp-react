@@ -257,6 +257,9 @@ function createHost(reply, fetchFunction) {
       pending.delete(request);
       cancel();
     },
+    cancelAll() {
+      for (const request of [...pending.keys()]) this.cancel(request);
+    },
   };
 }
 
@@ -339,6 +342,15 @@ async function loadLisp(emacs, version, name, text) {
 
 // ---- start --------------------------------------------------------------------
 
+// How long Lisp may take to answer an event or a reply before the page
+// gives up on it: <meta name="elisp-react:timeout" content="MILLISECONDS">,
+// 0 for never.
+function lispTimeout() {
+  const meta = document.querySelector('meta[name="elisp-react:timeout"]');
+  const value = Number(meta?.content);
+  return meta && Number.isFinite(value) && value >= 0 ? value : 30_000;
+}
+
 function reportError(error) {
   console.error("[elisp-react]", error);
   document.dispatchEvent(new CustomEvent("elisp-react:error", { detail: error }));
@@ -362,6 +374,11 @@ function reportError(error) {
  *             <script type="text/emacs-lisp"> elements
  *   fetch     a function to use instead of the browser's fetch for
  *             `react-fetch' (a development tool answers some URLs itself)
+ *   timeout   milliseconds Lisp may take to answer an event or a reply
+ *             (default 30000, or <meta name="elisp-react:timeout">; 0: no
+ *             limit).  Lisp that takes longer (an endless loop) cannot be
+ *             interrupted: the service is stopped and an error with the
+ *             symbol "timeout" is reported.
  * Resolves with { emacs, version, bootMs, dom, load }: `emacs` is the eval
  * service (emacs.eval, emacs.call), for experiments from the console;
  * load(name, text) evaluates changed source in the running page.  `files`
@@ -369,18 +386,38 @@ function reportError(error) {
  * "all" (the whole package, from a server without range requests).
  */
 export async function start({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.el", import.meta.url), sources = null,
-                              fetch: fetchFunction = (...args) => fetch(...args) } = {}) {
+                              fetch: fetchFunction = (...args) => fetch(...args), timeout = lispTimeout() } = {}) {
   const { createEmacsEvalService } = await import(new URL("app/src/emacs-eval-client.js", wasmacs).href);
   const emacs = createEmacsEvalService({ onOutput: (text) => console.log(`[emacs] ${text.trimEnd()}`) });
 
-  let dom = null;
+  let dom = null, host = null;
+  // Set when Lisp did not answer in time: the service is stopped, and the
+  // page sends it nothing more.
+  let stopped = false;
+  // Apply the DOM operations that ANSWER (a request to Lisp) resolves with.
+  // A request that is not answered within TIMEOUT (an endless loop in a
+  // handler: the worker cannot be interrupted) stops the service, so that
+  // the page does not look alive while nothing reacts.
+  const apply = (answer, what) => {
+    const timer = timeout > 0 && setTimeout(() => {
+      if (stopped) return;
+      stopped = true;
+      host.cancelAll();
+      emacs.terminate();
+      const error = new Error(`Emacs Lisp did not answer ${what} within ${timeout / 1000} s, and Emacs was stopped; reload the page`);
+      error.symbol = "timeout";
+      reportError(error);
+    }, timeout);
+    answer.then((ops) => { clearTimeout(timer); if (!stopped) dom.apply(ops); })
+      .catch((error) => { clearTimeout(timer); if (!stopped) reportError(error); });
+  };
   // Events are answered in the order they happened: the service works on one
   // request at a time, and each answer is applied before the next arrives.
   const dispatch = (id, name, event) => {
-    emacs.call("react-dispatch-event", id, name, event).then((ops) => dom.apply(ops), reportError);
+    if (!stopped) apply(emacs.call("react-dispatch-event", id, name, event), `the ${name} event`);
   };
-  const host = createHost((request, ok, value) => {
-    emacs.call("react-host-reply", request, ok, value).then((ops) => dom.apply(ops), reportError);
+  host = createHost((request, ok, value) => {
+    if (!stopped) apply(emacs.call("react-host-reply", request, ok, value), "an answer from the page");
   }, fetchFunction);
   dom = createDom(dispatch, host);
 

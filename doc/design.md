@@ -151,6 +151,8 @@ The host's `load(name, text)` is the entry point for a development tool: it comp
 
 The eval service answers one request at a time, in order, and the host applies each answer before the next one arrives. A burst of clicks therefore renders correctly without any locking. Everything in Lisp is synchronous: a handler runs to its end, then the render, then the answer. Answers to requests (a timer, a response) queue up with the events.
 
+A request that runs for ever (an endless loop in a handler) cannot be interrupted: the worker is busy and takes no message. The host therefore gives each request a time limit (`timeout`, 30 s by default). When it passes, the host stops the service, cancels what it was doing for Lisp (timers, requests) and reports an error with the symbol `timeout`. Without that, the page would go on scrolling and drawing (the main thread is free) while nothing reacts, and no error would ever be raised.
+
 The submit event of a form is always `preventDefault`ed by the host when Lisp listens for it, because Lisp answers after the browser has made its decision.
 
 ## Tests

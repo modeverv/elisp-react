@@ -57,6 +57,24 @@ Emacs Lisp で書いた React です。
 (react-mount (jsx (Counter (:start 3))) "#app")
 ```
 
+## 設定
+
+自動で起動するページは、設定を `<meta>` 要素から読みます。手で起動するページ（`<html>` に `data-elisp-react-manual`）は `start()` に渡します。
+
+```html
+<html data-elisp-react-manual>
+<script type="module">
+  import { start } from "https://modeverv.github.io/elisp-react/js/elisp-react.js";
+  window.elispReact = { ready: start({ timeout: 10000 }) };
+</script>
+```
+
+| `start({...})` | `<meta name="...">` | |
+|---|---|---|
+| `wasmacs` | `elisp-react:wasmacs` | wasmacs の eval service が公開されている場所。 |
+| `timeout` | `elisp-react:timeout` | イベントやページからの答えに Lisp が答えるまでに待つミリ秒（既定 30000。0 で無制限）。それより長くかかる Lisp（たとえば無限ループ）は中断できないので、Emacs を止め、ページはそれ以後何も送らず、シンボル `timeout` のエラーを報告します（`elisp-react:error` と赤い帯）。長い処理は途中でページに戻れます。`react-async` の中で数百件ごとに `(react-await (react-sleep 0))` を入れると、制限はその戻りごとに数え直されます。 |
+| `library`、`sources`、`fetch` | | `react.el` の URL、ページのスクリプトの代わりに読み込む Lisp、`fetch` の代わりに使う関数（開発用ツール向け）。 |
+
 ## 両側が Emacs
 
 `examples/server/` は、独自の JavaScript もビルドもないアプリケーションです。ネイティブの Emacs プロセスが Web サーバーになってデータを持ち、ブラウザの中の Emacs がページを描画します。両者は JSON ではなく、印字した Lisp データをやり取りします。
@@ -97,6 +115,7 @@ examples/async/        インターバル、タイムアウト、async/await で
 examples/server/       両側が Emacs。ネイティブの Emacs が Web サーバーになり、データを持つ
 test/react-test.el     差分計算のテスト（ネイティブの Emacs で実行。ブラウザ不要）
 test/e2e.mjs           サンプルを headless Chrome で動かすテスト
+test/e2e-host.mjs      ホストが Lisp のためにすること（test/pages/）を headless Chrome で確かめるテスト
 doc/design.md          仕組み（英語）
 doc/experiment-notes.md  ここまでの実験で分かったこと
 ```
@@ -173,6 +192,7 @@ DOM 要素の props: `:on-click`、`:on-input`、`:on-submit` などはイベン
 npm run serve        # http://localhost:5180/examples/counter/
 npm run test:lisp    # 差分計算のテスト（ネイティブの Emacs）
 npm run test:e2e     # サンプルを headless Chrome で実行
+npm run test:e2e-host  # ホストの機能（test/pages/）を headless Chrome で実行
 npm run test:server  # サーバーのサンプル（Emacs のサーバープロセスと Chrome）
 ```
 
@@ -180,7 +200,7 @@ npm run test:server  # サーバーのサンプル（Emacs のサーバープロ
 
 ## 制限
 
-これは実験で、フレームワークではありません。戻ってこないハンドラは中断できません。`async` の本体は途中でキャンセルできません。Emacs は初回に約5MBをダウンロードします（Emacs 本体です。付属の Lisp ファイル 146MB からは、ページが読んだものだけを取得します。あとから `require` したライブラリは、そのときに取得します）。key つきの1000行の再描画には約130ミリ秒、行を `:pure` にすると約30ミリ秒かかります。Emacs はタブごとにメモリを使います。起動時に線形メモリを 1GiB 確保し（最大 2GiB）、[Parens](https://github.com/modeverv/elisp-react-youtube-similar) のようなページはデスクトップの Chrome でレンダラーのメモリが 265〜335MB でした。Emacs を除いて保存した同じページは 136MB です。実機のスマートフォンではまだ試していません（[wasmacs#12](https://github.com/modeverv/wasmacs/issues/12)）。`examples/server/` のサーバーはサンプルの一部で、公開するためのものではありません（足りないものは「両側が Emacs」にあります）。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
+これは実験で、フレームワークではありません。戻ってこないハンドラは中断できません（[timeout](#設定) を過ぎると Emacs を止め、ページがそう知らせます）。`async` の本体は途中でキャンセルできません。Emacs は初回に約5MBをダウンロードします（Emacs 本体です。付属の Lisp ファイル 146MB からは、ページが読んだものだけを取得します。あとから `require` したライブラリは、そのときに取得します）。key つきの1000行の再描画には約130ミリ秒、行を `:pure` にすると約30ミリ秒かかります。Emacs はタブごとにメモリを使います。起動時に線形メモリを 1GiB 確保し（最大 2GiB）、[Parens](https://github.com/modeverv/elisp-react-youtube-similar) のようなページはデスクトップの Chrome でレンダラーのメモリが 265〜335MB でした。Emacs を除いて保存した同じページは 136MB です。実機のスマートフォンではまだ試していません（[wasmacs#12](https://github.com/modeverv/wasmacs/issues/12)）。`examples/server/` のサーバーはサンプルの一部で、公開するためのものではありません（足りないものは「両側が Emacs」にあります）。詳しくは [doc/experiment-notes.md](doc/experiment-notes.md) を参照してください。
 
 ## ライセンス
 
