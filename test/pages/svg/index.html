@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>svg</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Chart
+  :initial-state (lambda (_props) (list :values '(3 7 5)))
+  :render
+  (lambda (self)
+    (jsx (div
+          (svg (:class "chart" :width "120" :height "100" :viewBox "0 0 120 100")
+               (mapcar (lambda (pair)
+                         (jsx (rect (:key (car pair) :x (* 40 (car pair)) :y (- 100 (* 10 (cdr pair)))
+                                     :width "30" :height (* 10 (cdr pair)) :fill "teal"))))
+                       (cl-loop for value in (react-state self :values) for index from 0 collect (cons index value)))
+               (a (:href "javascript:alert(1)") (text (:x "5" :y "15") "label"))
+               (animate (:class "anim" :attributeName "href" :to "javascript:alert(2)")))
+          (button (:class "grow" :on-click (lambda (_event) (react-set-state self :values '(3 7 5 9)))) "grow")))))
+(react-mount '(Chart) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

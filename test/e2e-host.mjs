@@ -236,6 +236,21 @@ try {
   assert.equal(await js("document.querySelector('#elisp-react-error')"), null);
   pass("load: source whose render fails resolves with renderError naming the component; a good render clears the error box");
 
+  // ---- svg ----------------------------------------------------------------------
+  await open("svg");
+  const svg = await js(`(() => {
+    const chart = document.querySelector('.chart');
+    const rects = [...chart.querySelectorAll('rect')];
+    return { ns: chart.namespaceURI, rects: rects.map((rect) => [rect.namespaceURI === chart.namespaceURI, Math.round(rect.getBBox().height)]),
+             text: chart.querySelector('text').getBBox().width > 0, href: chart.querySelector('a').getAttribute('href'),
+             to: chart.querySelector('.anim').getAttribute('to') };
+  })()`);
+  assert.deepEqual(svg, { ns: "http://www.w3.org/2000/svg", rects: [[true, 30], [true, 70], [true, 50]], text: true, href: null, to: null });
+  await click(".grow");
+  await until("document.querySelectorAll('.chart rect').length === 4", "a bar is added");
+  assert.equal(await js("document.querySelectorAll('.chart rect')[3].namespaceURI"), "http://www.w3.org/2000/svg");
+  pass("svg: Lisp draws inline SVG in the SVG namespace (also elements added later); script URLs in links and animations are refused");
+
   console.log("e2e host passed");
 } finally {
   client?.close();
