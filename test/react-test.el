@@ -592,6 +592,29 @@
         (react-host-reply request t '(:width 10 :height 2))
         (should (equal measured '(:width 10 :height 2)))))))
 
+(ert-deftest react-test-refs-down-and-roots ()
+  "A parent hands a ref down; react-root finds the root instance."
+  (react-test--fresh
+    (let (child-self)
+      (react-define-component 'react-test-field
+        :render (lambda (self) (setq child-self self) `(input (:ref ,(react-props self :input-ref) :class "f"))))
+      (react-define-component 'react-test-form
+        :render (lambda (self) `(form () (react-test-field (:input-ref ,(react-make-ref self "search"))))))
+      (react-mount '(react-test-form) "#app")
+      (react-flush)
+      (let ((form (react-root "#app")))
+        (should (eq (react--instance-type form) 'react-test-form))
+        (should (react-ref form "search"))
+        (should-not (react-ref child-self "search"))
+        (react-focus form "search")
+        (should (equal (react-test--ops) '(("invoke" 2 "focus"))))
+        ;; A new ref for the same owner and name each render: nothing changes.
+        (react-force-update form)
+        (react-flush)
+        (should (react-ref form "search"))))
+    (react-mount '(div ()) "#plain")
+    (should-not (react-root "#plain"))))
+
 (ert-deftest react-test-timers ()
   "Timers are requests to the host; its answers run the Lisp functions."
   (react-test--fresh

@@ -466,7 +466,8 @@ A list of classes is joined; t and :false of an ARIA attribute are
   (let ((plist new))
     (while plist
       (let ((key (car plist)) (value (cadr plist)))
-        (cond ((react--event-name key)
+        (cond ((memq key '(:key :ref)))
+              ((react--event-name key)
                ;; Only whether there is a listener, and its options, matter
                ;; to the DOM; the function is looked up when the event arrives.
                (unless (and (eq (null value) (null (plist-get old key)))
@@ -580,15 +581,42 @@ and INSTANCE then renders nothing; without one, it is signalled again as
         (apply value instance args)
       (dolist (function value) (apply function instance args)))))
 
+(cl-defstruct (react--ref-handle (:constructor react--ref-handle-create) (:copier nil))
+  owner name)
+
+(defun react-make-ref (self name)
+  "A ref that SELF hands to a component below, to put on an element:
+\(input (:ref (react-props self :input-ref))).  The element is then
+SELF's ref NAME, for `react-focus', `react-invoke' and the others, as
+if SELF had rendered it."
+  (react--ref-handle-create :owner self :name name))
+
+(defun react--ref-target (host ref)
+  "The instance and the name under which HOST is kept for its :ref REF."
+  (if (react--ref-handle-p ref)
+      (cons (react--ref-handle-owner ref) (react--ref-handle-name ref))
+    (cons (react--host-owner host) ref)))
+
+(defun react--same-ref-p (a b)
+  "Non-nil if the :ref values A and B name the same thing.
+Not `equal': a ref made with `react-make-ref' holds an instance, whose
+tree leads back to itself."
+  (if (and (react--ref-handle-p a) (react--ref-handle-p b))
+      (and (eq (react--ref-handle-owner a) (react--ref-handle-owner b))
+           (equal (react--ref-handle-name a) (react--ref-handle-name b)))
+    (and (not (react--ref-handle-p a)) (not (react--ref-handle-p b)) (equal a b))))
+
 (defun react--set-ref (host old new)
-  "HOST's :ref changed from the name OLD to the name NEW (nil: none)."
-  (let ((owner (react--host-owner host)))
-    (when owner
-      (when (and old (eq (cdr (assoc old (react--instance-refs owner))) host))
-        (setf (react--instance-refs owner)
-              (assoc-delete-all old (react--instance-refs owner))))
-      (when new
-        (setf (alist-get new (react--instance-refs owner) nil nil #'equal) host)))))
+  "HOST's :ref changed from OLD to NEW (nil: none): a name, or a ref made
+with `react-make-ref'."
+  (when old
+    (pcase-let ((`(,owner . ,name) (react--ref-target host old)))
+      (when (and owner (eq (cdr (assoc name (react--instance-refs owner))) host))
+        (setf (react--instance-refs owner) (assoc-delete-all name (react--instance-refs owner))))))
+  (when new
+    (pcase-let ((`(,owner . ,name) (react--ref-target host new)))
+      (when owner
+        (setf (alist-get name (react--instance-refs owner) nil nil #'equal) host)))))
 
 (defun react--component-props (vnode)
   "The props a component gets from its element VNODE."
@@ -643,7 +671,7 @@ a replacement that has taken its place in the DOM."
    ((react--host-p mounted)
     (let ((props (react--element-props vnode)))
       (react--update-props (react--host-dom-id mounted) (react--host-props mounted) props)
-      (unless (equal (plist-get props :ref) (plist-get (react--host-props mounted) :ref))
+      (unless (react--same-ref-p (plist-get props :ref) (plist-get (react--host-props mounted) :ref))
         (react--set-ref mounted (plist-get (react--host-props mounted) :ref) (plist-get props :ref)))
       (setf (react--host-props mounted) props))
     (setf (react--host-children mounted)
@@ -867,6 +895,7 @@ every time) are the same when the values they captured are the same."
   (or (eq a b)
       (and (stringp a) (stringp b) (string= a b))
       (and (numberp a) (numberp b) (= a b))
+      (and (react--ref-handle-p a) (react--ref-handle-p b) (react--same-ref-p a b))
       (and (functionp a) (functionp b) (react--same-closure-p a b))))
 
 (defun react--same-atom-p (a b)
@@ -947,6 +976,12 @@ Rendering into the same place again updates what is there."
       (setq root (puthash selector (react--mount element 0) react--roots)))
     (react--emit "mount" selector (react--dom-id (gethash selector react--roots))))
   selector)
+
+(defun react-root (selector)
+  "The component instance that `react-mount' rendered into SELECTOR, or
+nil (nothing there, or an element rather than a component)."
+  (let ((root (gethash selector react--roots)))
+    (and (react--instance-p root) root)))
 
 (defun react-unmount (selector)
   "Take down what `react-mount' rendered into SELECTOR."
