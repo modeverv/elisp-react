@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en" data-elisp-react-manual>
+<meta charset="utf-8">
+<title>require</title>
+<div id="app">Loading Emacs…</div>
+<script type="module">
+import { start } from "/js/elisp-react.js";
+// The application comes first and requires the library that comes after it.
+const sources = [
+  { name: "app.el", text: "(require 'greeting-helper)\n(react-mount (list 'p '(:class \"greeting\") (greeting-helper-say \"page\")) \"#app\")" },
+  { name: "greeting-helper.el", text: "(defun greeting-helper-say (who) (format \"hello %s\" who))\n(provide 'greeting-helper)" },
+];
+window.elispReact = { ready: start({ sources }) };
+window.elispReact.ready.then((app) => Object.assign(window.elispReact, app));
+</script>
+</html>

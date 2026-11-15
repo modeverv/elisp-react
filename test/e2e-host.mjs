@@ -416,6 +416,11 @@ try {
   assert.equal(timing.start, true);
   pass(`timing: requests, files and the start are User Timing measures (a click: ${timing.click.ops} operations, ${timing.click.roundTripMs.toFixed(1)} ms to Lisp and back, ${timing.click.applyMs.toFixed(2)} ms to apply)`);
 
+  // ---- require between the page's files ------------------------------------------------
+  await open("require");
+  assert.equal(await text(".greeting"), "hello page");
+  pass("require: a file requires a library the page lists after it; every file of the page is on load-path");
+
   console.log("e2e host passed");
 } finally {
   client?.close();
