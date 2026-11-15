@@ -505,6 +505,25 @@
       (should (= (length messages) 1))
       (should (string-match-p "VideoCrad is not a defined component" (car messages))))))
 
+(ert-deftest react-test-render-to-string ()
+  "A server renders HTML without a page: escaped, no lifecycle, nothing left."
+  (react-test--fresh
+    (let (mounted)
+      (react-define-component 'react-test-card
+        :initial-state (lambda (props) (list :title (plist-get props :title)))
+        :did-mount (lambda (_self) (setq mounted t) (react-set-timeout 10 #'ignore))
+        :render (lambda (self)
+                  `(article (:class ("card" "new") :data-q "a\"b")
+                     (h2 () ,(react-state self :title))
+                     (img (:src "/t.png" :alt "<thumb>"))
+                     (input (:value "x&y")))))
+      (should (equal (react-render-to-string '(react-test-card (:title "Tom & <Jerry>")))
+                     (concat "<article class=\"card new\" data-q=\"a&quot;b\"><h2>Tom &amp; &lt;Jerry&gt;</h2>"
+                             "<img src=\"/t.png\" alt=\"&lt;thumb&gt;\"><input value=\"x&amp;y\"></article>")))
+      (should-not mounted)
+      (should (= (hash-table-count react--roots) 0))
+      (should (equal (react-test--ops) nil)))))
+
 (ert-deftest react-test-jsx-renders ()
   "Components written with `jsx' render and update like the others."
   (react-test--fresh

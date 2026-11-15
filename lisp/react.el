@@ -1863,27 +1863,56 @@ before writing when tabs share a list."
   (setq react--warned-invalid nil react--warned-tags nil)
   nil)
 
+(defconst react--void-tags
+  '(area base br col embed hr img input link meta source track wbr)
+  "HTML elements that have no end tag.")
+
+(defun react--escape (text &optional attribute)
+  "TEXT with & < > (and \" in an ATTRIBUTE value) written as entities."
+  (let ((text (replace-regexp-in-string "&" "&amp;" text t t)))
+    (setq text (replace-regexp-in-string "<" "&lt;" text t t)
+          text (replace-regexp-in-string ">" "&gt;" text t t))
+    (if attribute (replace-regexp-in-string "\"" "&quot;" text t t) text)))
+
 (defun react--html (mounted)
-  (cond ((react--text-p mounted) (react--text-text mounted))
+  (cond ((react--text-p mounted) (react--escape (react--text-text mounted)))
         ((react--instance-p mounted) (react--html (react--instance-child mounted)))
-        (t (let ((attributes "") (plist (react--host-props mounted)))
+        (t (let ((attributes "") (plist (react--host-props mounted))
+                 (tag (react--host-tag mounted)))
              (while plist
                (let* ((key (car plist))
                       (value (and (not (react--event-name key)) (not (memq key '(:key :ref :inner-html)))
                                   (react--attribute-value key (cadr plist)))))
                  (when value
                    (setq attributes (concat attributes " " (substring (symbol-name key) 1)
-                                            (if (eq value t) "" (format "=\"%s\"" value))))))
+                                            (if (eq value t) ""
+                                              (format "=\"%s\"" (react--escape (react--valid-text value) t)))))))
                (setq plist (cddr plist)))
-             (format "<%s%s>%s</%s>" (react--host-tag mounted) attributes
-                     (mapconcat #'react--html (react--host-children mounted) "")
-                     (react--host-tag mounted))))))
+             (if (memq tag react--void-tags)
+                 (format "<%s%s>" tag attributes)
+               (format "<%s%s>%s</%s>" tag attributes
+                       (mapconcat #'react--html (react--host-children mounted) "")
+                       tag))))))
 
 (defun react-html (selector)
-  "What is mounted at SELECTOR, as HTML text (after pending renders)."
+  "What is mounted at SELECTOR, as HTML text (after pending renders).
+Text and attribute values are escaped."
   (react--render-dirty)
   (let ((root (gethash selector react--roots)))
     (and root (react--html root))))
+
+(defun react-render-to-string (element)
+  "ELEMENT rendered as HTML text, without a page: for a server that sends
+a page's first screen (crawlers, link previews, a fast first paint), in
+a native Emacs as well as in the page's.  Components render with their
+initial state; :did-mount and the like do not run, and nothing is left
+mounted.  Text and attribute values are escaped; :inner-html is left
+out (there is no HTML cleaner in Lisp)."
+  (let ((react--next-dom-id 0) (react--ops nil)
+        (react--hosts (make-hash-table)) (react--roots (make-hash-table :test #'equal))
+        (react--dirty nil) (react--did-mount nil) (react--did-update nil) (react--effects nil)
+        (react--requests (make-hash-table)) (react--next-request 0))
+    (react--html (react--mount element 0))))
 
 (provide 'react)
 ;;; react.el ends here
