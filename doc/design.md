@@ -188,7 +188,7 @@ The host's `load(name, text)` is the entry point for a development tool: it comp
 
 ## Order and time
 
-The eval service answers one request at a time, in order, and the host applies each answer before the next one arrives. A burst of clicks therefore renders correctly without any locking. Everything in Lisp is synchronous: a handler runs to its end, then the render, then the answer. Answers to requests (a timer, a response) queue up with the events.
+The eval service answers one request at a time, in order, and the host applies each answer before the next one arrives. A burst of clicks therefore renders correctly without any locking. Everything in Lisp is synchronous: a handler runs to its end, then the render, then the answer. Answers to requests (a timer, a response) queue up with the events: while Lisp is answering anything, the answers that arrive wait in the host and then go to Lisp together, in one request (`react-host-replies`) and one render; an event first sends the answers that came before it, so the order stays the order of arrival. Thirty timers that fire at once cost two requests, not thirty.
 
 A render error used to abort the flush after the queue of dirty components had been emptied: the components not rendered yet kept their dirty flag but were in no queue, and stopped updating until an ancestor rendered. Now whatever is left (components, `:did-mount` and `:did-update` calls, effects) goes back to its queue before the error goes on, and the next flush finishes it. The error says which component failed (`react-render-error`, with the path of components above it), unless a component above has `:did-catch`, which gets it instead while the failed component renders nothing.
 

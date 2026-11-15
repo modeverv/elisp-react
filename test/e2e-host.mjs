@@ -351,6 +351,21 @@ try {
   assert.equal(await js("Object.keys(sessionStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 3);   // react.el, and the inline script of each address
   pass("storage: /app/ and /app/index.html are one application (old keys move); cache 'session' keeps compiled code in the tab only");
 
+  // ---- answers that arrive together --------------------------------------------------
+  await open("batch");
+  await js(`(() => {
+    window.batches = [];
+    const emacs = window.elispReact.emacs, call = emacs.call.bind(emacs);
+    emacs.call = (name, ...args) => { if (name === "react-host-replies") batches.push(args[0].length); return call(name, ...args); };
+    return true;
+  })()`);
+  await click(".go");
+  await until("document.querySelector('.n').textContent === '30'", "every timer is answered");
+  const batches = await js("window.batches");
+  assert.equal(batches.reduce((sum, size) => sum + size, 0), 30);
+  assert.equal(batches.length < 30, true, `${batches.length} requests for 30 answers`);
+  pass(`answers together: 30 timers that fire at once reach Lisp in ${batches.length} requests (${batches.join(" + ")}), not 30`);
+
   console.log("e2e host passed");
 } finally {
   client?.close();

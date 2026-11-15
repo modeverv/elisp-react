@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>answers together</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Ticks
+  :initial-state (lambda (_props) (list :n 0))
+  :render
+  (lambda (self)
+    (jsx (div (button (:class "go"
+                       :on-click (lambda (_event)
+                                   (dotimes (_ 30)
+                                     (react-set-timeout 0 (lambda () (react-set-state self :n (1+ (react-state self :n))))))))
+                      "go")
+              (p (:class "n") (format "%d" (react-state self :n)))))))
+(react-mount '(Ticks) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

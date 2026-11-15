@@ -862,7 +862,20 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
   // A request that is not answered within TIMEOUT (an endless loop in a
   // handler: the worker cannot be interrupted) stops the service, so that
   // the page does not look alive while nothing reacts.
+  // Requests to Lisp that have not been answered yet, and answers from the
+  // page that wait for them to be: those go to Lisp together, in one
+  // request and one render, when Lisp is free again.
+  let busy = 0;
+  let replies = [];
+  const sendReplies = () => {
+    if (replies.length === 0 || stopped) return;
+    const batch = replies;
+    replies = [];
+    apply(emacs.call("react-host-replies", batch), batch.length === 1 ? "an answer from the page" : `${batch.length} answers from the page`);
+  };
   const apply = (answer, what, done = () => {}, failed = () => {}, from = null) => {
+    busy += 1;
+    const settled = () => { busy -= 1; if (busy === 0) sendReplies(); };
     const timer = timeout > 0 && setTimeout(() => {
       if (stopped) return;
       stopped = true;
@@ -873,12 +886,16 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
       reportError(error);
     }, timeout);
     answer.then((ops) => { clearTimeout(timer); if (!stopped) dom.apply(ops, from); done(); })
-      .catch((error) => { clearTimeout(timer); dom.settled(from); if (!stopped) reportError(error); failed(error); });
+      .catch((error) => { clearTimeout(timer); dom.settled(from); if (!stopped) reportError(error); failed(error); })
+      .finally(settled);
   };
   // Events are answered in the order they happened: the service works on one
   // request at a time, and each answer is applied before the next arrives.
   const dispatch = (id, name, event, from = null) => {
-    if (!stopped) apply(emacs.call("react-dispatch-event", id, name, event), `the ${name} event`, undefined, undefined, from);
+    if (stopped) return;
+    // Answers that arrived before the event go first.
+    sendReplies();
+    apply(emacs.call("react-dispatch-event", id, name, event), `the ${name} event`, undefined, undefined, from);
   };
   // Lisp hears of a new address after the DOM changes it is part of.
   let started = false;
@@ -886,7 +903,9 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
     if (started && !stopped) queueMicrotask(() => apply(emacs.call("react--location-changed", described), "a new address"));
   });
   host = createHost((request, ok, value) => {
-    if (!stopped) apply(emacs.call("react-host-reply", request, ok, value), "an answer from the page");
+    if (stopped) return;
+    replies.push([request, ok, value]);
+    if (busy === 0) sendReplies();
   }, fetchFunction, address);
   dom = createDom(dispatch, host);
 
