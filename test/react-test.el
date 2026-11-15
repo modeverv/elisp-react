@@ -233,6 +233,18 @@
     (should (equal (react-test--find "html" (react-test--ops)) '(("html" 1 "<p>Bye</p>"))))
     (should-error (react-mount '(div (:inner-html "<p>x</p>") "child") "#other"))))
 
+(ert-deftest react-test-attribute-values ()
+  "Class lists, numbers in styles and ARIA booleans print as the web expects."
+  (should (equal (react--attribute-value :class '("card" nil active)) "card active"))
+  (should (equal (react--attribute-value :style '(:width 100 :opacity 0.5 :margin 0 :z-index 2 :--gap 4 :color nil))
+                 "width: 100px; opacity: 0.5; margin: 0; z-index: 2; --gap: 4"))
+  (should (equal (react--attribute-value :aria-pressed t) "true"))
+  (should (equal (react--attribute-value :aria-pressed :false) "false"))
+  (should (equal (react--attribute-value :aria-pressed nil) nil))
+  (should (equal (react--attribute-value :hidden t) t))
+  (should (equal (react--attribute-value :hidden :false) nil))
+  (should (equal (react--attribute-value :tabindex -1) "-1")))
+
 (ert-deftest react-test-operations-are-json ()
   "The host receives the operations as JSON."
   (react-test--fresh
