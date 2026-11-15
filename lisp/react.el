@@ -135,7 +135,38 @@
 (defvar react--storage (make-hash-table :test #'equal) "localStorage of this page: key -> printed value.")
 
 (defun react--emit (&rest op)
-  (push (vconcat op) react--ops))
+  (push (vconcat (mapcar #'react--valid-data op)) react--ops))
+
+;; The operations go to the page as JSON, which carries Unicode text only.
+;; An Emacs string can hold bytes (`json-serialize' returns UTF-8 bytes,
+;; `url-unhex-string' raw ones): one of them in an operation used to make
+;; the whole answer unsendable, and every DOM change of that event was lost.
+
+(defconst react--invalid-text (rx (any (#xD800 . #xDFFF) (#x3FFF80 . #x3FFFFF)))
+  "Characters that are not Unicode: surrogates and raw bytes.")
+
+(defvar react--warned-invalid nil "Components already warned about invalid text.")
+
+(defun react--valid-text (string)
+  "STRING as Unicode text: bytes are read as UTF-8, and what is still not
+text becomes U+FFFD (with a warning, once per component)."
+  (when (and (not (multibyte-string-p string)) (string-match-p "[\200-\377]" string))
+    (setq string (decode-coding-string string 'utf-8 t)))
+  (if (not (and (multibyte-string-p string) (string-match-p react--invalid-text string)))
+      string
+    (let ((who (and react--owner (react--instance-type react--owner))))
+      (unless (memq who react--warned-invalid)
+        (push who react--warned-invalid)
+        (message "react: %s gave the page text that is not Unicode (bytes?); it shows as U+FFFD: %S"
+                 (or who "Lisp") string)))
+    (replace-regexp-in-string react--invalid-text "\uFFFD" string t t)))
+
+(defun react--valid-data (data)
+  "DATA (an operation's argument) with every string in it valid text."
+  (cond ((stringp data) (react--valid-text data))
+        ((vectorp data) (vconcat (mapcar #'react--valid-data data)))
+        ((consp data) (cons (react--valid-data (car data)) (react--valid-data (cdr data))))
+        (t data)))
 
 (defun react--new-dom-id ()
   (cl-incf react--next-dom-id))
@@ -1055,6 +1086,7 @@ before writing when tabs share a list."
   (clrhash react--requests)
   (clrhash react--storage)
   (clrhash react--storage-watchers)
+  (setq react--warned-invalid nil)
   nil)
 
 (defun react--html (mounted)
