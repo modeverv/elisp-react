@@ -106,6 +106,14 @@ elements remain trusted application code; this policy is not a general HTML
 sanitizer or a Lisp sandbox. The policy stays in the single host JS file so
 applications that copy `elisp-react.js` need no additional runtime module.
 
+The operations reach the page as JSON, which carries Unicode text only, while
+an Emacs string can hold bytes: `json-serialize` returns UTF-8 bytes,
+`url-unhex-string` raw ones. One such string used to make the whole answer
+unsendable, so that every DOM change of the event was lost and Lisp and the
+page disagreed afterwards. `react--emit` therefore reads a string of bytes as
+UTF-8 and turns what is still not text (a byte that is not UTF-8, a surrogate)
+into U+FFFD, with one warning per component.
+
 ## The page and time
 
 Emacs Lisp runs only inside a request of the host: an event, or the first render. It cannot wait for anything and it has no access to the page. Both limits are answered the same way the DOM is: what Lisp wants is data in the operation list.

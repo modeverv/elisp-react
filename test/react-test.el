@@ -213,6 +213,23 @@
   "The DOM ids of the rows, in the order they were created."
   (mapcar #'cadr (react-test--find "create" (cl-remove-if-not (lambda (op) (equal (nth 2 op) "li")) ops))))
 
+(ert-deftest react-test-bytes-become-text ()
+  "Strings that are bytes reach the page as text; one bad string costs nothing else."
+  (react-test--fresh
+    (let ((raw (url-unhex-string "a%FFb"))                    ; not UTF-8
+          (json (encode-coding-string "{\"q\":\"括弧\"}" 'utf-8)) ; what json-serialize returns in Emacs 30
+          (inhibit-message t))
+      (should-not (multibyte-string-p raw))
+      (react-mount `(div (:title ,raw) (p () ,raw) (p () ,json) (p () ,(string #xD800))) "#app")
+      (let ((ops (react-flush)))
+        ;; All of it can be sent: the answer is JSON.
+        (should (json-serialize ops))
+        (setq ops (mapcar (lambda (op) (append op nil)) ops))
+        (should (equal (react-test--find "attr" ops) '(("attr" 1 "title" "a\uFFFDb"))))
+        (should (equal (mapcar #'caddr (react-test--find "text" ops))
+                       '("a\uFFFDb" "{\"q\":\"括弧\"}" "\uFFFD")))
+        (should (react-test--find "mount" ops))))))
+
 (ert-deftest react-test-keys-reorder ()
   "Keyed children keep their DOM nodes and state when the order changes."
   (react-test--fresh
