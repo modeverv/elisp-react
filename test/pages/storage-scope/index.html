@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>storage scope</title>
+<meta name="elisp-react:cache" content="session">
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Visits
+  :initial-state (lambda (_props) (list :visits (1+ (react-storage-get "visits" 0))))
+  :did-mount (lambda (self) (react-storage-set "visits" (react-state self :visits)))
+  :render (lambda (self) (jsx (p (:class "visits") (format "%d" (react-state self :visits))))))
+(react-mount '(Visits) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

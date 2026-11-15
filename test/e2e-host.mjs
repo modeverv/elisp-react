@@ -338,6 +338,19 @@ try {
   pass(`start: a start that stalls (temacs.wasm never comes) ends after its time limit and says where it was: ${(await text("#elisp-react-error")).trim()}`);
   stalled.closeAllConnections?.();
 
+  // ---- the page's storage: one name for / and /index.html; code per tab ---------------
+  await open("storage-scope");
+  await js("localStorage.clear(); sessionStorage.clear(); localStorage.setItem('elisp-react:/test/pages/storage-scope/index.html:visits', '5'); true");
+  await open("storage-scope");
+  assert.equal(await text(".visits"), "6");                       // what /index.html stored moved over
+  await client.send("Page.navigate", { url: `${site.origin}/test/pages/storage-scope/index.html${wasmacsQuery}` }, sessionId);
+  await until("document.querySelector('.visits')?.textContent === '7'", "/index.html is the same page");
+  assert.deepEqual(await js("Object.keys(localStorage).filter((key) => !key.startsWith('elisp-react:compiled:')).sort()"),
+    ["elisp-react:/test/pages/storage-scope/:visits"]);
+  assert.equal(await js("Object.keys(localStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 0);
+  assert.equal(await js("Object.keys(sessionStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 3);   // react.el, and the inline script of each address
+  pass("storage: /app/ and /app/index.html are one application (old keys move); cache 'session' keeps compiled code in the tab only");
+
   console.log("e2e host passed");
 } finally {
   client?.close();
