@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>intl</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Words
+  :initial-state (lambda (_props) (list :texts nil))
+  :did-mount
+  (lambda (self)
+    (react-intl '((:type number :value 1234567 :options (:notation "compact"))
+                  (:type relative :value -3 :unit "day")
+                  (:type date :value "2026-11-15T03:00:00Z" :options (:dateStyle "medium" :timeStyle "short"))
+                  (:type list :value ("りんご" "みかん" "ぶどう"))
+                  (:type sort :value ("ぶどう" "あんず" "みかん")))
+                (lambda (texts) (react-set-state self :texts texts))))
+  :render
+  (lambda (self)
+    (jsx (div (p (:class "zone") (format "%s %s" (react-locale :timeZone) (react-locale :offset)))
+              (p (:class "texts") (format "%S" (react-state self :texts)))))))
+(react-mount '(Words) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

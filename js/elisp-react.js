@@ -472,6 +472,28 @@ function createHost(reply, fetchFunction, address) {
       });
       return () => {};
     },
+    // The browser's Intl for Lisp, whose Emacs runs in the C locale:
+    // { items: [{ type, value, unit, options }...], locale } -> [text...].
+    // type: number, date (value: milliseconds or an ISO date), relative
+    // (value and unit), plural (the category), list (value: strings),
+    // sort (value: strings, sorted for the locale).
+    intl(request, { items, locale }) {
+      const locales = locale || navigator.languages;
+      const answer = (items || []).map(({ type, value, unit, options }) => {
+        const own = options || {};
+        switch (type) {
+          case "number": return new Intl.NumberFormat(locales, own).format(value);
+          case "date": return new Intl.DateTimeFormat(locales, own).format(new Date(value));
+          case "relative": return new Intl.RelativeTimeFormat(locales, own).format(value, unit || "day");
+          case "plural": return new Intl.PluralRules(locales, own).select(value);
+          case "list": return new Intl.ListFormat(locales, own).format(value || []);
+          case "sort": return [...(value || [])].sort(new Intl.Collator(locales, own).compare);
+          default: throw new Error(`elisp-react: no Intl type ${type}`);
+        }
+      });
+      queueMicrotask(() => { if (pending.delete(request)) reply(request, true, answer); });
+      return () => {};
+    },
     // Whether a CSS media query matches: at once, and at each change.
     media(request, { query }) {
       const list = matchMedia(query);
@@ -926,6 +948,11 @@ async function boot({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.
   let previous = first.hash;
   await emacs.call("react--storage-load", storedEntries());
   await emacs.call("react--location-set", address.describe());
+  await emacs.call("react--locale-set", {
+    languages: [...(navigator.languages || [navigator.language])],
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    offset: -new Date().getTimezoneOffset(),
+  });
   started = true;
   // Another tab of this page stored or removed a value: Lisp's copy follows,
   // and the functions watching that key run.
