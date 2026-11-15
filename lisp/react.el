@@ -403,22 +403,48 @@ FUNCTION gets the event, as a plain function prop would.  OPTIONS:
   (let ((name (symbol-name key)))
     (and (string-prefix-p ":on-" name) (substring name 4))))
 
+(defconst react--unitless-styles
+  '("opacity" "z-index" "flex" "flex-grow" "flex-shrink" "order" "font-weight" "line-height"
+    "zoom" "column-count" "orphans" "widows" "tab-size" "fill-opacity" "stroke-opacity"
+    "stroke-miterlimit" "flood-opacity" "stop-opacity" "animation-iteration-count"
+    "grid-row" "grid-column" "grid-row-start" "grid-row-end" "grid-column-start" "grid-column-end"
+    "aspect-ratio" "scale")
+  "CSS properties whose numbers have no unit; other numbers in a :style
+plist are pixels.")
+
 (defun react--style-string (style)
   (if (stringp style)
       style
     (let (parts)
       (while style
-        (push (format "%s: %s" (substring (symbol-name (car style)) 1) (cadr style)) parts)
+        (let* ((name (substring (symbol-name (car style)) 1))
+               (value (cadr style)))
+          (when value
+            (push (format "%s: %s" name
+                          (if (and (numberp value) (not (zerop value))
+                                   (not (member name react--unitless-styles))
+                                   (not (string-prefix-p "--" name)))
+                              (format "%spx" value)
+                            value))
+                  parts)))
         (setq style (cddr style)))
       (mapconcat #'identity (nreverse parts) "; "))))
 
 (defun react--attribute-value (key value)
-  "VALUE of the prop KEY as an attribute: a string, t (present) or nil (absent)."
-  (cond ((or (null value) (eq value :false)) nil)
-        ((eq value t) t)
-        ((eq key :style) (react--style-string value))
-        ((stringp value) value)
-        (t (format "%s" value))))
+  "VALUE of the prop KEY as an attribute: a string, t (present) or nil (absent).
+A list of classes is joined; t and :false of an ARIA attribute are
+\"true\" and \"false\"."
+  (let ((aria (string-prefix-p ":aria-" (symbol-name key))))
+    (cond ((null value) nil)
+          ((and aria (eq value t)) "true")
+          ((and aria (eq value :false)) "false")
+          ((eq value :false) nil)
+          ((eq value t) t)
+          ((eq key :style) (react--style-string value))
+          ((and (eq key :class) (listp value))
+           (mapconcat #'identity (delq nil (mapcar (lambda (each) (and each (format "%s" each))) value)) " "))
+          ((stringp value) value)
+          (t (format "%s" value)))))
 
 (defun react--set-prop (dom-id key value)
   "Put the prop KEY with VALUE on the DOM node DOM-ID."
