@@ -533,6 +533,29 @@
       (should (equal (react-response-header response "link") "<next>"))
       (should-not (react-response-header response "etag")))))
 
+(ert-deftest react-test-connections ()
+  "A WebSocket and an EventSource answer again and again until they close."
+  (react-test--fresh
+    (let (log socket source)
+      (setq socket (react-websocket "/chat" :on-open (lambda () (push 'open log))
+                                    :on-message (lambda (text) (push text log))
+                                    :on-close (lambda (code reason) (push (list code reason) log))))
+      (setq source (react-event-source "/events" :events '("tick")
+                                       :on-message (lambda (event) (push event log))))
+      (should (equal (react-test--ops)
+                     `(("call" ,socket "websocket" (:url "/chat" :protocols []))
+                       ("call" ,source "event-source" (:url "/events" :events ["tick"] :withCredentials nil)))))
+      (react-host-reply socket t '(:type "open"))
+      (react-websocket-send socket "hello")
+      (should (equal (react-test--ops) `(("tell" "websocket-send" (:request ,socket :data "hello")))))
+      (react-host-reply socket t '(:type "message" :data "hi"))
+      (react-host-reply source t '(:type "tick" :data "1" :id "7"))
+      (react-host-reply socket t '(:type "close" :code 1000 :reason "bye"))
+      (react-host-reply socket t '(:type "message" :data "too late"))
+      (should (equal (nreverse log) '(open "hi" (:type "tick" :data "1" :id "7") (1000 "bye"))))
+      (react-cancel source)
+      (should (equal (react-test--ops) `(("cancel" ,source)))))))
+
 (ert-deftest react-test-storage ()
   "localStorage holds Lisp data; only changes are sent to the page."
   (react-test--fresh

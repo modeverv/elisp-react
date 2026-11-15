@@ -847,6 +847,70 @@ JSON body."
              (catch (funcall catch value))
              (t (message "react-fetch: %s: %s" url value)))))))
 
+(defun react--connection (command argument handlers message)
+  "Ask the host for a connection: COMMAND with ARGUMENT, answered again
+and again.  HANDLERS is a plist :on-open :on-message :on-close :on-error;
+an answer's :type names the one to call.  MESSAGE turns a \"message\"
+answer into the argument of :on-message.  Returns the connection."
+  (let (connection)
+    (setq connection
+          (react-host-call
+           command argument
+           (lambda (_ok value)
+             (let* ((type (or (plist-get value :type) "message"))
+                    (handler (plist-get handlers (if (member type '("open" "close" "error"))
+                                                     (intern (concat ":on-" type))
+                                                   :on-message))))
+               ;; After "close" nothing more comes.
+               (when (equal type "close") (remhash connection react--requests))
+               (when handler
+                 (pcase type
+                   ("close" (funcall handler (plist-get value :code) (plist-get value :reason)))
+                   ((or "open" "error") (funcall handler))
+                   (_ (funcall handler (funcall message value)))))))
+           t))
+    connection))
+
+(defun react-websocket (url &rest options)
+  "Open a WebSocket to URL (ws:, wss:, or a path of this site).
+OPTIONS is a plist:
+
+:on-open FUNCTION      ()
+:on-message FUNCTION   (TEXT): each text message
+:on-close FUNCTION     (CODE REASON)
+:on-error FUNCTION     ()
+:protocols LIST        sub-protocols (strings)
+
+Returns the connection: `react-websocket-send' sends on it, `react-cancel'
+closes it (in :will-unmount)."
+  (react--connection "websocket" (list :url url :protocols (vconcat (plist-get options :protocols)))
+                     options (lambda (value) (plist-get value :data))))
+
+(defun react-websocket-send (connection text)
+  "Send TEXT on CONNECTION, a WebSocket from `react-websocket'.
+The text goes once the DOM changes of this event are applied; a
+connection that is not open yet reports an error on the page."
+  (react--emit "tell" "websocket-send" (list :request connection :data text))
+  nil)
+
+(defun react-event-source (url &rest options)
+  "Listen to the server-sent events of URL (an EventSource).
+OPTIONS is a plist:
+
+:on-message FUNCTION   (EVENT), a plist (:type \"message\" :data \"...\" :id ...)
+:events LIST           further event names (strings) to receive; their
+                       EVENT has :type set to the name
+:on-open FUNCTION      ()
+:on-error FUNCTION     (): the connection broke; the browser reconnects
+:on-close FUNCTION     (nil nil): the browser gave up
+:with-credentials t    send cookies to another origin
+
+Returns the connection; `react-cancel' closes it (in :will-unmount)."
+  (react--connection "event-source"
+                     (list :url url :events (vconcat (plist-get options :events))
+                           :withCredentials (and (plist-get options :with-credentials) t))
+                     options #'identity))
+
 (defun react-response-json (response)
   "The body of RESPONSE as Lisp data: objects are plists, arrays vectors."
   (json-parse-string (plist-get response :text) :object-type 'plist :null-object nil :false-object nil))

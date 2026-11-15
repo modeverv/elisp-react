@@ -125,6 +125,8 @@ So asynchronous code in a component is a callback that changes state, and time p
 
 A `:ref` names an element for the component that rendered it. `react-invoke` emits its operation into the same list as the DOM changes, after them, which is why `:did-update` (run after the render, before the flush returns) is the place to ask for the focus of a field that the render has just created.
 
+A connection (`react-websocket`, `react-event-source`) is such a request that is answered again and again, like an interval: every message is one answer, with its `:type`, and after `close` the request is forgotten. A message costs a round trip to Emacs and a render, so a socket that sends many messages a second keeps Emacs busy.
+
 ### async / await
 
 `react-async` is a macro over `iter-lambda` from Emacs's `generator.el`, which rewrites a body into a state machine that can stop at `iter-yield` and be resumed. `(react-await X)` yields the awaitable `X`, a function of `(RESOLVE REJECT)`. The runner, `react--async-step`, calls the awaitable with two functions that resume the generator with `(react--resolved . VALUE)` or `(react--rejected . MESSAGE)`; `react-await` turns the latter into the signal `react-async-error` inside the body, so an ordinary `condition-case` around an await handles a failure.
