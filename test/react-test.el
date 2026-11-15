@@ -790,6 +790,23 @@
                    '(("search_query" . "括弧 x") ("page" . "2") ("flag" . "") ("bad" . "\uFFFD%zz"))))
     (should (equal (react-url-query "") nil))))
 
+(ert-deftest react-test-page-events ()
+  "Events of the window, media queries and visibility are long requests."
+  (react-test--fresh
+    (let (log keys media)
+      (setq keys (react-listen-page 'window "keydown" (lambda (event) (push (plist-get event :key) log))
+                                    :keys '("/" "Escape") :prevent t))
+      (setq media (react-media-query "(prefers-color-scheme: dark)" (lambda (dark) (push dark log))))
+      (should (equal (react-test--ops)
+                     `(("call" ,keys "page-listen" (:target "window" :event "keydown" :keys ["/" "Escape"]
+                                                    :prevent t :throttle nil))
+                       ("call" ,media "media" (:query "(prefers-color-scheme: dark)")))))
+      (react-host-reply keys t '(:type "keydown" :key "/"))
+      (react-host-reply keys t '(:type "keydown" :key "Escape"))
+      (react-host-reply media t '(:matches t))
+      (react-host-reply media t '(:matches nil))
+      (should (equal (nreverse log) '("/" "Escape" t nil))))))
+
 (ert-deftest react-test-queries ()
   "Queries are shared by key, loaded once, kept, and loaded again when invalidated."
   (react-test--fresh

@@ -1038,6 +1038,53 @@ conditionals may contain awaits; an `unwind-protect' cleanup form and a
   (declare (indent 0))
   `(react--async-step (funcall (iter-lambda () ,@body)) nil))
 
+;;;; The page: its own events
+
+(defun react-listen-page (target event function &rest options)
+  "Call FUNCTION at each EVENT of the window or the document.
+TARGET is `window' or `document'; EVENT a name, \"keydown\", \"resize\",
+\"scroll\", \"visibilitychange\" ...  FUNCTION gets a plist (:type :key
+:width :height :x :y :visibility): the event, the page's size, its scroll
+position and whether it is visible.  OPTIONS:
+
+:keys LIST     only these keys (\"/\" \"Escape\" \"ArrowLeft\"), for key events
+:prevent t     the browser does not act on them (preventDefault)
+:throttle MS   at most one call per MS milliseconds; the last event of a
+               burst is not lost
+
+Returns the listener; `react-cancel' removes it (in :will-unmount)."
+  (react-host-call "page-listen"
+                   (list :target (format "%s" target) :event event
+                         :keys (vconcat (plist-get options :keys))
+                         :prevent (and (plist-get options :prevent) t)
+                         :throttle (plist-get options :throttle))
+                   (lambda (_ok value) (funcall function value))
+                   t))
+
+(defun react-media-query (query function)
+  "Call FUNCTION with t or nil: whether the CSS media QUERY matches, as
+soon as the page has answered and at each change.  QUERY is, for
+example, \"(prefers-color-scheme: dark)\" or \"(max-width: 600px)\".
+Returns the listener, for `react-cancel'."
+  (react-host-call "media" (list :query query)
+                   (lambda (_ok value) (funcall function (plist-get value :matches)))
+                   t))
+
+(defun react-observe-visible (self name function &rest options)
+  "Call FUNCTION with VISIBLE and RATIO whenever the element SELF rendered
+with :ref NAME comes into view or leaves it (an IntersectionObserver).
+OPTIONS: :margin \"200px\" counts the element as visible that much
+before it is; :threshold 0.5, half of it.  Use it after the element is on
+the page (:did-mount).  Returns the observer, for `react-cancel'."
+  (let ((host (react-ref self name)))
+    (when host
+      (react-host-call "observe-visible"
+                       (list :node (react--host-dom-id host) :margin (plist-get options :margin)
+                             :threshold (plist-get options :threshold))
+                       (lambda (ok value)
+                         (when ok (funcall function (plist-get value :visible) (plist-get value :ratio))))
+                       t))))
+
 ;;;; The page: its address
 
 (defvar react--location nil "The page's address: (:href :pathname :search :hash).")

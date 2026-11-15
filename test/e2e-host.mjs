@@ -156,6 +156,29 @@ try {
   await until("document.querySelector('.hash').textContent === '#/linked'", "back in memory");
   pass("location: a page without an address of its own (elisp-studio's preview) gets one in memory, with links, history and Back");
 
+  // ---- events of the page -------------------------------------------------------------
+  await client.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] }, sessionId);
+  await open("page-events");
+  await until("document.querySelector('.seen').textContent === 'nil' && document.querySelector('.dark').textContent === 'nil'", "the first answers");
+  const typed = await js(`(() => {
+    const slash = new KeyboardEvent("keydown", { key: "/", cancelable: true, bubbles: true });
+    const other = new KeyboardEvent("keydown", { key: "a", cancelable: true, bubbles: true });
+    document.body.dispatchEvent(slash);
+    document.body.dispatchEvent(other);
+    return [slash.defaultPrevented, other.defaultPrevented];
+  })()`);
+  assert.deepEqual(typed, [true, false]);
+  await until("document.querySelector('.keys').textContent === '/'", "the key reaches Lisp");
+  await client.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] }, sessionId);
+  await until("document.querySelector('.dark').textContent === 't'", "the media query changes");
+  await client.send("Emulation.setDeviceMetricsOverride", { width: 640, height: 480, deviceScaleFactor: 1, mobile: false }, sessionId);
+  await until("document.querySelector('.width').textContent === '640'", "the resize reaches Lisp");
+  await js("window.scrollTo(0, document.body.scrollHeight); true");
+  await until("document.querySelector('.seen').textContent === 't'", "the end comes into view");
+  await client.send("Emulation.clearDeviceMetricsOverride", {}, sessionId);
+  await client.send("Emulation.setEmulatedMedia", { features: [] }, sessionId);
+  pass("page events: a key on the window (filtered, its default prevented), a resize, a media query and an element coming into view reach Lisp");
+
   console.log("e2e host passed");
 } finally {
   client?.close();

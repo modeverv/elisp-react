@@ -209,6 +209,17 @@ function storedEntries() {
   return entries;
 }
 
+// What Lisp gets to know about an event of the window or the document: the
+// event's own fields, and the page's size, scroll position and visibility.
+function describePage(event) {
+  return {
+    type: event.type,
+    key: typeof event.key === "string" ? event.key : null,
+    width: innerWidth, height: innerHeight, x: scrollX, y: scrollY,
+    visibility: document.visibilityState,
+  };
+}
+
 // The options of fetch that `react-fetch' passes on as they are.
 const FETCH_OPTIONS = ["credentials", "cache", "redirect", "mode", "keepalive", "priority", "referrerPolicy"];
 
@@ -263,6 +274,53 @@ function createHost(reply, fetchFunction, address) {
         .then((value) => { if (pending.delete(request)) reply(request, true, value); },
               (error) => { if (pending.delete(request)) reply(request, false, error?.message || String(error)); });
       return () => controller.abort();
+    },
+    // Events of the window or the document, answered at each one:
+    // {target: "window" | "document", event, keys, prevent, throttle}.
+    // keys: only these keys (event.key); prevent: preventDefault for those
+    // that are sent; throttle: at most one answer per that many ms (the
+    // last one is sent at the end).
+    "page-listen"(request, { target, event: name, keys, prevent, throttle }) {
+      const on = target === "document" ? document : window;
+      let last = 0, trailing = null;
+      const send = (event) => {
+        last = performance.now();
+        if (pending.has(request)) reply(request, true, describePage(event));
+      };
+      const listener = (event) => {
+        if (keys?.length && !keys.includes(event.key)) return;
+        if (prevent) event.preventDefault();
+        if (!throttle) { send(event); return; }
+        clearTimeout(trailing);
+        const wait = last + throttle - performance.now();
+        if (wait <= 0) send(event);
+        else trailing = setTimeout(() => send(event), wait);
+      };
+      on.addEventListener(name, listener);
+      return () => { clearTimeout(trailing); on.removeEventListener(name, listener); };
+    },
+    // Whether a CSS media query matches: at once, and at each change.
+    media(request, { query }) {
+      const list = matchMedia(query);
+      const answer = () => { if (pending.has(request)) reply(request, true, { matches: list.matches }); };
+      list.addEventListener("change", answer);
+      queueMicrotask(answer);
+      return () => list.removeEventListener("change", answer);
+    },
+    // Whether a node is in view (IntersectionObserver): at once, and at
+    // each change.
+    "observe-visible"(request, { node, margin, threshold }, nodeOf) {
+      const element = nodeOf(node);
+      if (!element) {
+        Promise.resolve().then(() => { if (pending.delete(request)) reply(request, false, "No such node"); });
+        return () => {};
+      }
+      const observer = new IntersectionObserver((entries) => {
+        const entry = entries[entries.length - 1];
+        if (pending.has(request)) reply(request, true, { visible: entry.isIntersecting, ratio: entry.intersectionRatio });
+      }, { rootMargin: margin || "0px", threshold: threshold ?? 0 });
+      observer.observe(element);
+      return () => observer.disconnect();
     },
     // A connection answers again and again until it closes:
     // {type: "open"}, {type: "message", data}, {type: "close", code, reason},
