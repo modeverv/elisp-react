@@ -301,7 +301,9 @@ npm run test:e2e-host  # ホストの機能（test/pages/）を headless Chrome 
 npm run test:server  # サーバーのサンプル（Emacs のサーバープロセスと Chrome）
 ```
 
-このリポジトリの隣に wasmacs のチェックアウト（`../wasmacs/docs`）があれば、開発サーバーとブラウザテストはそこから Emacs を読み込みます。なければ wasmacs の公開サイトから読み込みます。
+このリポジトリの**整形と lint。** `react.el` を読み込んだ Emacs は、部品とマークアップを例と同じ形に字下げします（`indent-region`）。`react-define-component` とすべてのタグは、props を特別な引数として扱います。lint としては、`test/run-ert.sh` が `react.el` にしているように、警告をエラーにしてアプリケーションのファイルをバイトコンパイルします（`--eval '(setq byte-compile-error-on-warn t)'`）。`tools/compile.mjs` は、ページのファイルについてのコンパイラの警告を、ページと同じ Emacs で表示します。
+
+隣に wasmacs のチェックアウト（`../wasmacs/docs`）があれば、開発サーバーとブラウザテストはそこから Emacs を読み込みます。なければ wasmacs の公開サイトから読み込みます。
 
 ## 制限
 

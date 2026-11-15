@@ -524,6 +524,21 @@
       (should (= (hash-table-count react--roots) 0))
       (should (equal (react-test--ops) nil)))))
 
+(ert-deftest react-test-indentation ()
+  "Components and markup indent the way the examples are written."
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (setq indent-tabs-mode nil)
+    (insert "(react-define-component 'Card\n:render\n(lambda (self)\n(jsx (div (:class \"card\")\n(h2 (react-props self :title))\n(p \"text\")))))")
+    (indent-region (point-min) (point-max))
+    (should (equal (buffer-string)
+                   (concat "(react-define-component 'Card\n"
+                           "  :render\n"
+                           "  (lambda (self)\n"
+                           "    (jsx (div (:class \"card\")\n"
+                           "           (h2 (react-props self :title))\n"
+                           "           (p \"text\")))))")))))
+
 (ert-deftest react-test-jsx-renders ()
   "Components written with `jsx' render and update like the others."
   (react-test--fresh

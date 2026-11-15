@@ -303,6 +303,8 @@ npm run test:server  # the server example: an Emacs server process and Chrome
 
 With a wasmacs checkout next to this one (`../wasmacs/docs`), the server and the browser test load Emacs from there; otherwise from the public wasmacs site.
 
+**Formatting and lint.** With `react.el` loaded, Emacs indents components and markup as the examples are written (`indent-region`): `react-define-component` and every tag take their props as a distinguished argument. As a lint, byte-compile an application's files with warnings as errors, as `test/run-ert.sh` does for `react.el` (`--eval '(setq byte-compile-error-on-warn t)'`); `tools/compile.mjs` prints the compiler's warnings for the page's files in the page's own Emacs.
+
 ## Limits
 
 This is an experiment, not a framework. A handler that never returns cannot be interrupted (after the [timeout](#settings) Emacs is stopped and the page says so), an `async` body cannot be cancelled, and Emacs is a 5 MB download on the first visit (Emacs itself; of its 146 MB of Lisp files a page fetches the few it reads, a library it requires later when it requires it). A render of 1000 keyed rows takes about 130 ms, about 30 ms when the rows are `:pure`. Emacs costs memory in every tab: it reserves 1 GiB of linear memory at start (2 GiB at most), and a page such as [Parens](https://github.com/modeverv/elisp-react-youtube-similar) took 265–335 MB of renderer memory in desktop Chrome, against 136 MB for the same page saved without Emacs. No real phone has been tried ([wasmacs#12](https://github.com/modeverv/wasmacs/issues/12)). The server of `examples/server/` belongs to the example and is not one to publish ("Emacs on both ends" says what it lacks). See [doc/experiment-notes.md](doc/experiment-notes.md).
