@@ -128,6 +128,7 @@ doc/experiment-notes.md  ここまでの実験で分かったこと
 | | |
 |---|---|
 | `(react-define-component NAME :render F :initial-state F :did-mount F :did-update F :will-unmount F)` | コンポーネントを定義します。`:render` はインスタンスを受け取り、要素を1つ返します。`(NAME PROPS CHILD...)` という要素がこのコンポーネントになり、子は `:children` という prop で届きます。`:did-update` はインスタンス、前回の props、前回の state を受け取ります。 |
+| `(react-effect SELF KEY DEPS F)` | 描画の中で使います。前に実行したときから `DEPS`（`equal` で比べる任意のデータ）が変わっていれば、描画の後に `F` を実行します。`F` が関数を返すと、それが次の実行の前と、部品が外されるときの後始末になります。状態を持つ処理を、いくつもの部品が呼ぶ普通の関数にできます。`:did-mount`、`:did-update`、`:will-unmount` には関数のリストも渡せます。 |
 | `(react-props SELF [KEY])`、`(react-state SELF [KEY])` | インスタンスの props / state（plist）、またはその中の1つの値。 |
 | `(react-set-state SELF :key VALUE ...)` | 指定したキーを差し替えた新しい state を設定し、再描画します。「古い state を受け取って変更分を返す関数」を1つ渡すこともできます。1回のイベント中に何度呼んでも、描画は1回です。 |
 | `(react-mount ELEMENT SELECTOR)` | CSS セレクタで指定したページ上の要素に描画します。 |

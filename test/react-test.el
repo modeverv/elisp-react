@@ -942,6 +942,36 @@
       (react-flush)
       (should (= renders 3)))))
 
+(ert-deftest react-test-effects ()
+  "Lifecycle keys take lists; effects run when their deps change and clean up."
+  (react-test--fresh
+    (let (log app)
+      (react-define-component 'react-test-effects
+        :initial-state (lambda (_props) (list :ms 100 :other 0))
+        :did-mount (list (lambda (_self) (push 'mount-1 log)) (lambda (_self) (push 'mount-2 log)))
+        :will-unmount (list (lambda (_self) (push 'unmount log)))
+        :render (lambda (self)
+                  (setq app self)
+                  (react-effect self 'interval (react-state self :ms)
+                                (lambda ()
+                                  (push (list 'start (react-state self :ms)) log)
+                                  (let ((ms (react-state self :ms)))
+                                    (lambda () (push (list 'stop ms) log)))))
+                  '(p () "x")))
+      (react-mount '(react-test-effects) "#app")
+      (react-flush)
+      (should (equal (nreverse log) '(mount-1 mount-2 (start 100))))
+      (setq log nil)
+      (react-set-state app :other 1)            ; deps unchanged
+      (react-flush)
+      (should (equal log nil))
+      (react-set-state app :ms 50)
+      (react-flush)
+      (should (equal (nreverse log) '((stop 100) (start 50))))
+      (setq log nil)
+      (react-unmount "#app")
+      (should (equal (nreverse log) '(unmount (stop 50)))))))
+
 (ert-deftest react-test-redefinition-keeps-state ()
   "A component that is defined again renders anew with the state its instances have."
   (react-test--fresh

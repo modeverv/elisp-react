@@ -128,6 +128,7 @@ An element is plain Lisp data: `"text"`, `(TAG PROPS CHILD...)` or `(TAG CHILD..
 | | |
 |---|---|
 | `(react-define-component NAME :render F :initial-state F :did-mount F :did-update F :will-unmount F)` | Define a component. `:render` gets the instance and returns one element. An element `(NAME PROPS CHILD...)` renders it; its children arrive as the prop `:children`. `:did-update` gets the instance, the previous props and the previous state. |
+| `(react-effect SELF KEY DEPS F)` | In a render: run `F` after the render when `DEPS` (any data, compared with `equal`) changed since it last ran; a function that `F` returns cleans up before the next run and when the component is taken off. Stateful logic becomes an ordinary function that several components call. `:did-mount`, `:did-update` and `:will-unmount` also take a list of functions. |
 | `(react-props SELF [KEY])`, `(react-state SELF [KEY])` | The props or the state (plists) of an instance, or one value. |
 | `(react-set-state SELF :key VALUE ...)` | Install a new state plist with these keys changed and render again. Also takes one function from the old state to the changes. Several calls during one event cause one render. |
 | `(react-mount ELEMENT SELECTOR)` | Render into the page element the CSS selector names. |

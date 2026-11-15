@@ -124,7 +124,8 @@
   refs        ; alist: ref name -> mounted element
   force       ; render even if :should-update says no (the definition changed)
   parent      ; the component instance whose render produced it, or nil
-  readers)    ; for a context provider: the instances that read it
+  readers     ; for a context provider: the instances that read it
+  effects)    ; alist: effect key -> (DEPS . CLEANUP), see `react-effect'
 
 (defvar react--next-dom-id 0)
 (defvar react--ops nil "DOM operations for the host, newest first.")
@@ -134,6 +135,7 @@
 (defvar react--did-mount nil "Instances mounted since the last flush.")
 (defvar react--did-update nil "(INSTANCE PREVIOUS-PROPS PREVIOUS-STATE) of renders since the last flush.")
 (defvar react--owner nil "The component instance that is rendering.")
+(defvar react--effects nil "(INSTANCE KEY DEPS FUNCTION) to run after the renders, newest first.")
 (defvar react--next-request 0)
 (defvar react--requests (make-hash-table) "Request id -> (FUNCTION . KEEP) waiting for the host.")
 (defvar react--storage (make-hash-table :test #'equal) "localStorage of this page: key -> printed value.")
@@ -191,6 +193,9 @@ text becomes U+FFFD (with a warning, once per component)."
 :did-mount FUNCTION      (SELF), after the component is on the page.
 :did-update FUNCTION     (SELF PREVIOUS-PROPS PREVIOUS-STATE), after each
                          later render.
+                         (These two and :will-unmount also take a list of
+                         functions, called in order: helpers can each add
+                         one.  See also `react-effect'.)
 :should-update FUNCTION  (SELF PREVIOUS-PROPS PREVIOUS-STATE) -> nil to skip
                          a render: the component and everything below it
                          stay as they are.  PREVIOUS-PROPS and
@@ -480,6 +485,13 @@ FUNCTION gets the event, as a plain function prop would.  OPTIONS:
        (when (plist-get spec :did-mount) (push instance react--did-mount))
        instance))))
 
+(defun react--lifecycle (instance key &rest args)
+  "Call INSTANCE's KEY (:did-mount ...): a function, or a list of them."
+  (let ((value (plist-get (react--instance-spec instance) key)))
+    (if (functionp value)
+        (apply value instance args)
+      (dolist (function value) (apply function instance args)))))
+
 (defun react--set-ref (host old new)
   "HOST's :ref changed from the name OLD to the name NEW (nil: none)."
   (let ((owner (react--host-owner host)))
@@ -503,8 +515,9 @@ FUNCTION gets the event, as a plain function prop would.  OPTIONS:
          (react--set-ref mounted (plist-get (react--host-props mounted) :ref) nil)
          (mapc #'react--unmount (react--host-children mounted)))
         ((react--instance-p mounted)
-         (let ((will-unmount (plist-get (react--instance-spec mounted) :will-unmount)))
-           (when will-unmount (funcall will-unmount mounted)))
+         (react--lifecycle mounted :will-unmount)
+         (dolist (effect (react--instance-effects mounted))
+           (when (functionp (cddr effect)) (funcall (cddr effect))))
          (setf (react--instance-mounted mounted) nil)
          (react--unmount (react--instance-child mounted)))))
 
@@ -818,9 +831,9 @@ Rendering into the same place again updates what is there."
 (defun react--render-dirty ()
   "Render every component whose state changed, parents first."
   (let ((rounds 0))
-    (while (or react--dirty react--did-mount react--did-update)
+    (while (or react--dirty react--did-mount react--did-update react--effects)
       (when (> (cl-incf rounds) 100)
-        (setq react--dirty nil react--did-mount nil react--did-update nil)
+        (setq react--dirty nil react--did-mount nil react--did-update nil react--effects nil)
         (error "Components keep changing state while rendering"))
       (let ((dirty (sort react--dirty (lambda (a b) (< (react--instance-depth a) (react--instance-depth b))))))
         (setq react--dirty nil)
@@ -832,12 +845,43 @@ Rendering into the same place again updates what is there."
         (setq react--did-mount nil)
         (dolist (instance mounted)
           (when (react--instance-mounted instance)
-            (funcall (plist-get (react--instance-spec instance) :did-mount) instance))))
+            (react--lifecycle instance :did-mount))))
       (let ((updated (nreverse react--did-update)))
         (setq react--did-update nil)
         (dolist (entry updated)
           (when (react--instance-mounted (car entry))
-            (apply (plist-get (react--instance-spec (car entry)) :did-update) entry)))))))
+            (apply #'react--lifecycle (car entry) :did-update (cdr entry)))))
+      (let ((effects (nreverse react--effects)))
+        (setq react--effects nil)
+        (dolist (effect effects)
+          (react--run-effect effect))))))
+
+(defun react-effect (self key deps function)
+  "In a render of SELF: run FUNCTION after the render when DEPS changed.
+KEY names the effect among SELF's (a symbol); DEPS is any Lisp data,
+compared with `equal' to what it was the last time FUNCTION ran.
+FUNCTION takes no arguments; if it returns a function, that one cleans
+up: it is called before FUNCTION runs again, and when SELF is taken off.
+
+A helper that keeps a timer running while a component is on the page:
+
+  (defun my-use-interval (self ms function)
+    (react-effect self \='interval ms
+      (lambda ()
+        (let ((timer (react-set-interval ms function)))
+          (lambda () (react-clear-timer timer))))))"
+  (let ((effect (assq key (react--instance-effects self))))
+    (unless (and effect (equal (cadr effect) deps))
+      (push (list self key deps function) react--effects)))
+  nil)
+
+(defun react--run-effect (effect)
+  "Run EFFECT, (INSTANCE KEY DEPS FUNCTION), after cleaning up its last run."
+  (pcase-let ((`(,instance ,key ,deps ,function) effect))
+    (when (react--instance-mounted instance)
+      (let ((old (assq key (react--instance-effects instance))))
+        (when (and old (functionp (cddr old))) (funcall (cddr old)))
+        (setf (alist-get key (react--instance-effects instance)) (cons deps (funcall function)))))))
 
 (defun react-flush ()
   "Finish pending renders.  Returns the DOM operations since the last call.
@@ -1492,7 +1536,7 @@ before writing when tabs share a list."
 (defun react-reset ()
   "Forget everything that is mounted."
   (setq react--next-dom-id 0 react--ops nil react--dirty nil react--did-mount nil
-        react--did-update nil react--next-request 0)
+        react--did-update nil react--effects nil react--next-request 0)
   (clrhash react--hosts)
   (clrhash react--roots)
   (clrhash react--requests)

@@ -147,6 +147,10 @@ Nothing else is new: `react-sleep` and `react-fetch-async` are awaitables over t
 
 Limits inherited from `generator.el`: an await cannot be inside a `lambda` in the body or in the cleanup forms of `unwind-protect`. There is no cancellation, and an `async` body has no value to wait for (no composition of async functions).
 
+## Effects
+
+A spec has one value per lifecycle key, which may be a list of functions. `react-effect`, called in a render, compares its deps with those of its last run (kept in the instance under the effect's key) and, when they differ, queues the effect; the flush runs the queue after `:did-mount` and `:did-update`, calling the previous cleanup first. Unmounting calls every cleanup after `:will-unmount`. An effect that a skipped render (`:should-update`) did not reach keeps its last run.
+
 ## Context
 
 An instance remembers its parent, the component whose render produced it. `react-provide` is an element of a built-in component, `react-provider`, which renders its one child; `react-context` walks up the parents to the nearest provider of the key and records the reader there. When the provider renders with a different value (`react--same-value-p`), its `:did-update` forces its readers to render, so a value reaches components below a `:pure` one that skipped its render. Readers that are gone are forgotten at that point.
