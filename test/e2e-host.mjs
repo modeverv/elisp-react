@@ -130,6 +130,32 @@ try {
   assert.equal(await text(".greeting"), "hello page 7");
   pass("page commands: the page's script calls a Lisp function (elispReact.send) and the page shows the result when it resolves");
 
+  // ---- the address ----------------------------------------------------------------
+  await open("location", "&q=%E6%8B%AC%E5%BC%A7");
+  assert.match(await text(".query"), /\("q" \. "括弧"\)/);
+  await click(".go");
+  await until("document.querySelector('.hash').textContent === '#/watch?v=a'", "react-navigate");
+  assert.equal(await js("location.hash"), "#/watch?v=a");
+  await js("history.back(); true");
+  await until("document.querySelector('.hash').textContent === ''", "Back reaches Lisp");
+  await click(".link");
+  await until("document.querySelector('.hash').textContent === '#/linked'", "a hash link reaches Lisp");
+  await click(".title");
+  await until("document.title === 'Set by Lisp'", "the title");
+  assert.equal(await js("document.querySelector('meta[name=description]').content"), "about the page");
+  assert.equal(await js("document.querySelector('meta[property=\"og:title\"]').content"), "shared");
+  pass("location: Lisp reads the address and its query, hears links and Back, navigates, and sets the title and meta");
+  await open("location", "&mode=memory");
+  assert.equal(await text(".href"), "/");
+  await click(".link");
+  await until("document.querySelector('.hash').textContent === '#/linked'", "a hash link in memory");
+  await click(".go");
+  await until("document.querySelector('.hash').textContent === '#/watch?v=a'", "navigate in memory");
+  assert.equal(await js("location.hash"), "");
+  await click(".back");
+  await until("document.querySelector('.hash').textContent === '#/linked'", "back in memory");
+  pass("location: a page without an address of its own (elisp-studio's preview) gets one in memory, with links, history and Back");
+
   console.log("e2e host passed");
 } finally {
   client?.close();

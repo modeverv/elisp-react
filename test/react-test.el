@@ -762,6 +762,34 @@
 
 ;;;; Defining a component again
 
+(ert-deftest react-test-location ()
+  "Lisp knows the address, hears of new ones, and asks the page to move."
+  (react-test--fresh
+    (react--location-set '(:href "http://x/app/?q=1#/watch?v=a" :pathname "/app/" :search "?q=1" :hash "#/watch?v=a"))
+    (should (equal (react-location :hash) "#/watch?v=a"))
+    (let (seen handle)
+      (setq handle (react-location-watch (lambda (location) (push (plist-get location :hash) seen))))
+      (react--location-changed '(:href "http://x/app/#/results" :pathname "/app/" :search "" :hash "#/results"))
+      (should (equal seen '("#/results")))
+      (should (equal (react-location :hash) "#/results"))
+      (react-location-unwatch handle)
+      (react--location-changed '(:href "http://x/" :pathname "/" :search "" :hash ""))
+      (should (equal seen '("#/results"))))
+    (react-navigate "#/watch?v=b")
+    (react-navigate "/elsewhere" t)
+    (react-history-go -1)
+    (react-set-title "Parens")
+    (react-set-meta "og:title" "A video")
+    (should (equal (react-test--ops)
+                   '(("tell" "navigate" (:url "#/watch?v=b" :replace nil))
+                     ("tell" "navigate" (:url "/elsewhere" :replace t))
+                     ("tell" "history-go" (:delta -1))
+                     ("tell" "title" (:text "Parens"))
+                     ("tell" "meta" (:name "og:title" :content "A video")))))
+    (should (equal (react-url-query "?search_query=%E6%8B%AC%E5%BC%A7+x&page=2&flag&bad=%FF%zz")
+                   '(("search_query" . "括弧 x") ("page" . "2") ("flag" . "") ("bad" . "\uFFFD%zz"))))
+    (should (equal (react-url-query "") nil))))
+
 (ert-deftest react-test-queries ()
   "Queries are shared by key, loaded once, kept, and loaded again when invalidated."
   (react-test--fresh

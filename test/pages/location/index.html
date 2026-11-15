@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-elisp-react-manual>
+<meta charset="utf-8">
+<title>location</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(react-define-component 'Where
+  :initial-state (lambda (_props) (list :location (react-location)))
+  :did-mount (lambda (self) (react-location-watch (lambda (location) (react-set-state self :location location))))
+  :render
+  (lambda (self)
+    (let ((location (react-state self :location)))
+      (jsx (div
+            (p (:class "hash") (plist-get location :hash))
+            (p (:class "href") (plist-get location :href))
+            (p (:class "query") (format "%S" (react-url-query (plist-get location :search))))
+            (a (:class "link" :href "#/linked") "a hash link")
+            (button (:class "go" :on-click (lambda (_event) (react-navigate "#/watch?v=a"))) "go")
+            (button (:class "back" :on-click (lambda (_event) (react-history-go -1))) "back")
+            (button (:class "title" :on-click (lambda (_event)
+                                                (react-set-title "Set by Lisp")
+                                                (react-set-meta "description" "about the page")
+                                                (react-set-meta "og:title" "shared")))
+                    "title"))))))
+(react-mount '(Where) "#app")
+</script>
+<script type="module">
+import { start } from "/js/elisp-react.js";
+const mode = new URLSearchParams(location.search).get("mode") || "auto";
+window.elispReact = { ready: start({ location: mode }) };
+window.elispReact.ready.then((app) => Object.assign(window.elispReact, app));
+</script>
+</html>

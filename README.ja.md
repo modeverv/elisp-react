@@ -73,6 +73,7 @@ Emacs Lisp で書いた React です。
 |---|---|---|
 | `wasmacs` | `elisp-react:wasmacs` | wasmacs の eval service が公開されている場所。 |
 | `timeout` | `elisp-react:timeout` | イベントやページからの答えに Lisp が答えるまでに待つミリ秒（既定 30000。0 で無制限）。それより長くかかる Lisp（たとえば無限ループ）は中断できないので、Emacs を止め、ページはそれ以後何も送らず、シンボル `timeout` のエラーを報告します（`elisp-react:error` と赤い帯）。長い処理は途中でページに戻れます。`react-async` の中で数百件ごとに `(react-await (react-sleep 0))` を入れると、制限はその戻りごとに数え直されます。 |
+| `location` | | `"browser"` はページのアドレス。`"memory"` はホストが持つアドレスで、`/` から始まり、履歴も持ち、ハッシュのリンクもそこでたどります。既定は `"browser"` で、ページにアドレスが無いとき（elisp-studio のプレビュー、`about:srcdoc`）は `"memory"` です。 |
 | `library`、`sources`、`fetch` | | `react.el` の URL、ページのスクリプトの代わりに読み込む Lisp、`fetch` の代わりに使う関数（開発用ツール向け）。 |
 
 ## 両側が Emacs
@@ -140,6 +141,10 @@ Lisp はページに応答している間しか動きません。待つことも
 | `(react-set-timeout MS F)`、`(react-set-interval MS F)`、`(react-clear-timer TIMER)` | あとで `F` を呼びます（1回、または繰り返し）。インターバルは `:did-mount` で始め、`:will-unmount` で止めます。 |
 | `(react-fetch URL :method :headers :body :then F :catch F)`、`(react-response-json RESPONSE)`、`(react-cancel REQUEST)` | ブラウザの `fetch` です。`:then` は `(:status 200 :ok t :url "..." :redirected nil :headers (:content-type "..." ...) :text "...")` という plist を受け取ります（HTTP のエラーステータスのときも同じです）。応答そのものがなかったときは `:catch` がメッセージを受け取ります。`:body` の代わりに `:file (react-ref SELF NAME)` を渡すと、閲覧者がそのファイル入力で選んだファイルが本文になります。ファイルは、大きさにかかわらず、Lisp を通らずにページからサーバーへそのまま送られます。`:form (list 名前 値 ...)` は `multipart/form-data` で送ります。値は文字列か、ファイル入力の ref で、ref ならそこで選ばれたファイルを送ります。`:credentials`、`:cache`、`:redirect`、`:mode`、`:keepalive`、`:priority`、`:referrerPolicy` はそのまま `fetch` に渡ります。 |
 | `(react-response-header RESPONSE NAME)`、`:as 'base64` と `(react-response-bytes RESPONSE)` | 応答のヘッダー（大文字小文字は問いません）。`:as 'base64` を付けると本文は `:text` ではなく `:base64` で届き、`react-response-bytes` がそれを unibyte の文字列にします。画像、アーカイブなど、どんなバイト列でも扱えます（付けないと本文は UTF-8 の文字列として読まれ、UTF-8 でないバイトは失われます）。 |
+| `(react-location [PART])`、`(react-location-watch F)`、`(react-location-unwatch HANDLE)` | ページのアドレス `(:href :pathname :search :hash)`。起動時から分かっています。リンク、戻る・進む、`react-navigate` のあと、`F` が新しいアドレスを受け取ります。 |
+| `(react-navigate URL [REPLACE])`、`(react-history-go DELTA)` | 履歴に新しい項目を加えます（`REPLACE` なら今の項目を変えます）。同じオリジンならページはそのままで、監視している関数が呼ばれます。別のオリジンなら読み込みます。`DELTA` が -1 なら「戻る」です。 |
+| `(react-set-title TEXT)`、`(react-set-meta NAME CONTENT)` | 文書のタイトル。`<meta>`（`"description"`、または `"og:title"` などのプロパティ）。`nil` で消します。 |
+| `(react-url-query SEARCH)` | クエリ文字列を alist にします。エスケープは UTF-8 として読みます: `(react-url-query (react-location :search))`。 |
 | `(react-websocket URL :on-open F :on-message F :on-close F :on-error F)`、`(react-websocket-send CONNECTION TEXT)` | WebSocket（`ws:`、`wss:`、またはこのサイトのパス）。`:on-message` は届いたテキストのメッセージを1つずつ、`:on-close` はコードと理由を受け取ります。`react-cancel` で閉じます（`:will-unmount` で）。 |
 | `(react-event-source URL :on-message F :events NAMES :on-open F :on-error F :on-close F)` | サーバー送信イベント。`:on-message` は `(:type "message" :data "..." :id ...)` を受け取り、`:events` に並べた名前付きのイベントも同じように受け取ります。切れてもブラウザがつなぎ直し、`:on-close` はブラウザがあきらめたことを表します。`react-cancel` で閉じます。 |
 | `(react-storage-get KEY [DEFAULT])`、`(react-storage-set KEY VALUE)`、`(react-storage-remove KEY)` | ページの `localStorage` です。印字できる Lisp データなら何でも保存できます。読み出しは即座に返ります（起動時にホストが Lisp に写しを渡します）。`react-storage-set` は値を置き換えます。同じページの別のタブがその間に保存したものも置き換えます。 |
