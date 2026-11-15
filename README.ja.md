@@ -219,7 +219,7 @@ Lisp はページに応答している間しか動きません。待つことも
 | `:pure t` | props か state が変わったときだけ描画します。文字列と数値は値で、それ以外（レコード、リスト、関数）は同一のオブジェクトかどうかで比べます。 |
 | `(react-changed-p NEW OLD :key ...)`、`(react-shallow-equal A B)` | `:should-update` 用です。2つの plist の指定したキーだけ、または全部を比べます。 |
 
-render 関数の中の `lambda` は描画のたびに新しいオブジェクトになるので、関数の prop があると `:pure` は効きません。その場合は `react-changed-p` でデータの prop だけを比べ、ハンドラの中では関数の prop をイベント時に読みます（`(funcall (react-props self :on-change) ...)`）。描画を省いたコンポーネントにも、新しい props は渡されています。
+render 関数の中の `lambda` は描画のたびに新しいオブジェクトになりますが、`:pure` は、同じ `lambda` から作られ、取り込んだ値が同じ（一段だけ比べます）2つのクロージャを同じ関数とみなします。`(VideoCard (:on-pick (lambda (_event) (pick video))))` は、`video` が同じオブジェクトである限り描画を省きます。描画のたびに新しいもの（描画の中で作ったリストなど）を取り込むクロージャでは効かないので、その場合は `react-changed-p` でデータの prop だけを比べ、ハンドラの中では関数の prop をイベント時に読みます（`(funcall (react-props self :on-change) ...)`）。描画を省いたコンポーネントにも、新しい props は渡されています。
 
 増減や並べ替えのあるリストの子には `:key` を付けます（`(li (:key id) ...)`）。前回と同じ key の子は同じ子として扱われ、リスト内の位置が変わっても、DOM ノードと、その中のコンポーネントの state を保ちます。動かすノードは最小限です。key のない子は位置で対応づけます。
 
