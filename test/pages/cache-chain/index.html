@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" data-elisp-react-manual>
+<meta charset="utf-8">
+<title>cache chain</title>
+<div id="app">Loading Emacs…</div>
+<script type="module">
+import { start } from "/js/elisp-react.js";
+// ?macro=TEXT: what the macro in the first file expands to; ?cache=no: keep nothing.
+const params = new URLSearchParams(location.search);
+const sources = [
+  { name: "macros.el", text: `(defmacro chain-greeting () ${JSON.stringify(params.get("macro") || "v1")})` },
+  { name: "app.el", text: `(react-mount (list 'p '(:class "greeting") (chain-greeting)) "#app")` },
+];
+window.elispReact = { ready: start({ sources, cache: params.get("cache") !== "no" }) };
+window.elispReact.ready.then((app) => Object.assign(window.elispReact, app));
+</script>
+</html>

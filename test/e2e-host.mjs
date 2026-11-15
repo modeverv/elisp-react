@@ -287,6 +287,21 @@ try {
   await until("document.querySelector('.text').innerHTML === '<p>next</p>'", "new HTML replaces the old");
   pass("inner HTML: HTML from elsewhere is shown cleaned: no scripts, handlers, script URLs, frames or styles; unknown tags keep their text");
 
+  // ---- compiled code kept by the files before it --------------------------------------
+  await open("cache-chain", "&macro=v1");
+  await js("localStorage.clear(); true");
+  await open("cache-chain", "&macro=v1");
+  assert.equal(await text(".greeting"), "v1");
+  assert.equal(await js("Object.keys(localStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 3);
+  // Only the file with the macro changed: the file that uses it is compiled again.
+  await open("cache-chain", "&macro=v2");
+  assert.equal(await text(".greeting"), "v2");
+  await js("localStorage.clear(); true");
+  await open("cache-chain", "&macro=v3&cache=no");
+  assert.equal(await text(".greeting"), "v3");
+  assert.equal(await js("Object.keys(localStorage).filter((key) => key.startsWith('elisp-react:compiled:')).length"), 0);
+  pass("compiled code: a change in a file loaded before (a macro) compiles the files after it again; cache:false keeps nothing");
+
   console.log("e2e host passed");
 } finally {
   client?.close();
