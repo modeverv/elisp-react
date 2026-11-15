@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +49,25 @@ try {
   assert.equal(foreign.status, 403);
   assert.equal((await fetch(`${origin}/.gitignore`)).status, 404);
   pass("the server evaluates nothing it is sent and refuses other sites");
+
+  // A visitor who asks and hangs up at once.  Writing to a connection that
+  // the other side has closed raises SIGPIPE, which ends an Emacs in batch
+  // mode unless run.sh had the signal ignored.
+  const hangUp = (reset) => new Promise((resolve) => {
+    const socket = connect(port, "127.0.0.1");
+    socket.on("error", () => resolve());
+    socket.on("connect", () => socket.write(`GET /lisp/react.el HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`, () => {
+      if (reset) socket.resetAndDestroy(); else socket.destroy();
+      resolve();
+    }));
+  });
+  for (const reset of [false, true]) {
+    for (let i = 0; i < 30; i++) await hangUp(reset);
+  }
+  await pause(500);
+  assert.equal(server.exitCode ?? server.signalCode, null, "the server ended");
+  assert.equal((await lisp("/api/info")).startsWith("(:emacs"), true);
+  pass("sixty visitors who hang up in the middle of an answer do not end the server");
 
   const wasmacs = existsSync(`${root}/../wasmacs/docs/app/src/emacs-eval-client.js`) ? `?wasmacs=${origin}/wasmacs/` : "";
   chrome = spawn(chromePath, [
