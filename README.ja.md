@@ -254,6 +254,27 @@ Lisp がイベントに答えるのはブラウザが動いた後なので、リ
 
 `:keys`（そのキーだけ）、`:self`（子ではなく要素自身のイベントだけ）、`:prevent`（`preventDefault`）、`:stop`（`stopPropagation`。親のリスナーには届きません）、`:capture`、`:passive`、`:throttle MS`（`MS` ごとに多くても1回。最後のイベントは残ります）が使えます。
 
+## アプリケーションをテストする
+
+`lisp/react-testing.el` は Lisp のデータでできたページです。Lisp が返す操作をブラウザと同じように適用するので、アプリケーションのテストがブラウザ無しで、どの Emacs でも動きます。
+
+```elisp
+(require 'react-testing)
+(ert-deftest counter-counts ()
+  (react-testing-load "counter.el")                       ; または (react-testing-render '(Counter))
+  (react-testing-click (react-testing-find :class "increment"))
+  (should (equal (react-testing-text (react-testing-find :class "count")) "Apples: 4")))
+```
+
+| | |
+|---|---|
+| `react-testing-render`、`react-testing-load`、`react-testing-reset`、`react-testing-storage`、`react-testing-location` | 最初からやり直します。要素を描くか、自分でマウントするファイルを読み込みます。ページの保存値とアドレスを前もって入れておけます。 |
+| `react-testing-find`、`react-testing-find-all`（`:tag :class :text :attribute`）、`react-testing-text`、`react-testing-attribute`、`react-testing-property`、`react-testing-html` | 要素を探して読みます。 |
+| `react-testing-click`、`react-testing-input`、`react-testing-key`、`react-testing-submit`、`react-testing-dispatch` | 閲覧者のすることをします。イベントはブラウザと同じように親へ上がっていきます。 |
+| `react-testing-answer-fetch STATUS TEXT`、`react-testing-answer COMMAND VALUE`、`react-testing-time-passes`、`react-testing-requests`、`react-testing-told` | Lisp が求めたことにページとして答えます。fetch に答え、タイマーを進め、待っているものと Lisp がページに伝えたことを見ます。 |
+
+`test/react-testing-test.el` は、この方法でサンプルを3つテストしています。ネイティブの Emacs ではなく、ページと同じ Emacs 30.2 でテストを動かすには、wasmacs の `tools/scripts/ert.mjs` を使います。
+
 ## 動いているページを書き換える
 
 ページに表示中のコンポーネントを定義し直すと、新しい定義に入れ替わり、各インスタンスは今の state のまま再描画されます。土台はこれを `window.elispReact.load(name, text)` として公開しています。変更したソースを、動いているページの中でコンパイルして評価します。ソースは読み込めたがその後の描画に失敗したときは、`renderError` も付けて解決します。新しい定義は入っています。描画がうまくいけば、エラーの帯は消えます。[elisp-studio](https://github.com/modeverv/elisp-studio) はこの上に作られています。ブラウザの中の Emacs でファイルを編集すると、隣で動いているアプリケーションが、保存のたびにリロードなしで変わります。

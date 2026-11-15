@@ -200,6 +200,9 @@ The submit event of a form is always `preventDefault`ed by the host when Lisp li
 
 ## Tests
 
+`lisp/react-testing.el` is the test kit for applications: a fake page that applies the operations (`react-testing--apply`) and keeps nodes, attributes, properties, listeners (with their options), requests and notices, so that a test can find elements, dispatch events that bubble, and answer requests, through public functions only. The library's own tests below predate it.
+
+
 `test/react-test.el` runs the reconciler in a native Emacs. Because operations are data, a test mounts an element, dispatches an event and compares the operations or the HTML text of the mounted tree; no DOM is involved and the whole file takes milliseconds.
 
 `test/e2e.mjs` opens the examples in headless Chrome with Emacs running in the page and checks, among other things, that DOM nodes survive a re-render (the page is patched, not rebuilt).
