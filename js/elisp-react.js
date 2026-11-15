@@ -83,6 +83,51 @@ export function isSafeAttribute(name, value) {
   return true;
 }
 
+// HTML from elsewhere (a description, a comment, Markdown made HTML) put in
+// a node with :inner-html, cleaned: elements outside this list are taken
+// out (their text stays), these are dropped with their content, and only
+// these attributes are kept, script URLs not.
+const HTML_TAGS = new Set([
+  "a", "abbr", "b", "bdi", "bdo", "blockquote", "br", "caption", "cite", "code", "col", "colgroup",
+  "dd", "del", "details", "dfn", "div", "dl", "dt", "em", "figcaption", "figure", "h1", "h2", "h3",
+  "h4", "h5", "h6", "hr", "i", "img", "ins", "kbd", "li", "mark", "ol", "p", "picture", "pre", "q",
+  "rp", "rt", "ruby", "s", "samp", "small", "source", "span", "strong", "sub", "summary", "sup",
+  "table", "tbody", "td", "tfoot", "th", "thead", "time", "tr", "u", "ul", "var", "wbr",
+]);
+const HTML_DROPPED = new Set([
+  "script", "style", "iframe", "frame", "frameset", "object", "embed", "applet", "template", "noscript",
+  "link", "meta", "base", "form", "input", "button", "textarea", "select", "option", "svg", "math",
+  "audio", "video", "canvas", "dialog", "slot",
+]);
+const HTML_ATTRIBUTES = new Set([
+  "href", "src", "srcset", "sizes", "alt", "title", "class", "width", "height", "colspan", "rowspan",
+  "lang", "dir", "start", "reversed", "type", "datetime", "cite", "open", "loading", "headers", "scope",
+]);
+
+function cleanHtml(parent) {
+  for (const node of [...parent.childNodes]) {
+    if (node.nodeType === Node.TEXT_NODE) continue;
+    if (node.nodeType !== Node.ELEMENT_NODE) { node.remove(); continue; }
+    const tag = node.localName;
+    if (HTML_DROPPED.has(tag) || node.namespaceURI !== "http://www.w3.org/1999/xhtml") { node.remove(); continue; }
+    cleanHtml(node);
+    if (!HTML_TAGS.has(tag)) { node.replaceWith(...node.childNodes); continue; }
+    for (const { name, value } of [...node.attributes]) {
+      if (!HTML_ATTRIBUTES.has(name) || !isSafeAttribute(name, value)
+          || (name === "srcset" && /(?:javascript|vbscript):/i.test(value))) node.removeAttribute(name);
+    }
+    if (tag === "a" && node.hasAttribute("href")) node.setAttribute("rel", "noopener noreferrer");
+  }
+}
+
+export function sanitizedHtml(html) {
+  // A <template>'s content is inert: nothing in it runs or loads.
+  const template = document.createElement("template");
+  template.innerHTML = String(html ?? "");
+  cleanHtml(template.content);
+  return template.content;
+}
+
 // An SVG animation can set an attribute to a value later: <animate
 // attributeName="href" to="javascript:...">.  Its values are URLs too.
 const ANIMATIONS = new Set(["animate", "set", "animateMotion", "animateTransform"]);
@@ -238,6 +283,9 @@ function createDom(dispatch, host) {
       if (!container) throw new Error(`elisp-react: nothing matches ${selector}`);
       if (node(id).parentNode !== container) container.replaceChildren(node(id));
     },
+    // :inner-html: HTML from elsewhere, cleaned; Lisp leaves the node's
+    // children alone.
+    html(id, html) { node(id).replaceChildren(sanitizedHtml(html)); },
     invoke(id, method, ...args) {
       if (!INVOCABLE.has(method)) throw new Error(`elisp-react: ${method} cannot be invoked from Lisp`);
       const element = node(id);

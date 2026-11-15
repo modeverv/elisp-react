@@ -103,7 +103,12 @@ old attribute and warns with its name only; the remaining operations still run.
 Use Lisp `:on-click` and the other `:on-...` props for callbacks. Text children
 remain text nodes. Page-authored Lisp, `start`/`load`/`run`, and deliberate script
 elements remain trusted application code; this policy is not a general HTML
-sanitizer or a Lisp sandbox. The policy stays in the single host JS file so
+sanitizer or a Lisp sandbox. HTML text from elsewhere goes through `:inner-html`
+instead: the host parses it in an inert `<template>` and keeps only an allow-list
+of text and table elements with plain attributes (no handlers, styles or script
+URLs); scripts, styles, frames, forms, SVG and MathML are dropped with their
+content, other elements are unwrapped. The page's Emacs has no HTML parser (no
+libxml), so this is the host's job. The policy stays in the single host JS file so
 applications that copy `elisp-react.js` need no additional runtime module.
 
 The operations reach the page as JSON, which carries Unicode text only, while

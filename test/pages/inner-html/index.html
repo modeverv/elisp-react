@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>inner html</title>
+<div id="app">Loading Emacs…</div>
+<script type="text/emacs-lisp">
+(defconst html-from-elsewhere
+  (concat "<p>Hi <b>there</b> <custom-tag>kept text</custom-tag></p>"
+          "<img src=\"data:image/gif;base64,R0lGODlhAQABAAAAACw=\" onerror=\"window.bad1=1\" alt=\"pixel\">"
+          "<script>window.bad2 = 1<\/script>"
+          "<a href=\"javascript:window.bad3=1\">x</a>"
+          "<a href=\"https://example.com/\" onclick=\"window.bad4=1\" style=\"color:red\">ok</a>"
+          "<iframe srcdoc=\"<script>parent.bad5=1<\/script>\"></iframe>"
+          "<svg><script>window.bad6=1<\/script></svg>"))
+(react-define-component 'Description
+  :initial-state (lambda (_props) (list :html html-from-elsewhere))
+  :render (lambda (self)
+            (jsx (div (div (:class "text" :inner-html (react-state self :html)))
+                      (button (:class "next" :on-click (lambda (_event) (react-set-state self :html "<p>next</p>"))) "next")))))
+(react-mount '(Description) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

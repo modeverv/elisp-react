@@ -222,6 +222,17 @@
       (should (< (cl-position '("insert" 1 4 nil) ops :test #'equal)
                  (cl-position '("prop" 1 "value" "b") ops :test #'equal))))))
 
+(ert-deftest react-test-inner-html ()
+  "HTML text goes to the page as one operation; children are not allowed too."
+  (react-test--fresh
+    (react-mount '(div (:class "description" :inner-html "<p>Hi <b>there</b></p>")) "#app")
+    (let ((ops (react-test--ops)))
+      (should (member '("html" 1 "<p>Hi <b>there</b></p>") ops))
+      (should-not (react-test--find "attr" (cl-remove-if (lambda (op) (equal (nth 2 op) "class")) ops))))
+    (react-mount '(div (:class "description" :inner-html "<p>Bye</p>")) "#app")
+    (should (equal (react-test--find "html" (react-test--ops)) '(("html" 1 "<p>Bye</p>"))))
+    (should-error (react-mount '(div (:inner-html "<p>x</p>") "child") "#other"))))
+
 (ert-deftest react-test-operations-are-json ()
   "The host receives the operations as JSON."
   (react-test--fresh

@@ -34,6 +34,9 @@
 ;;                         file input, :form [[NAME VALUE]...] for a submit)
 ;;   :value :checked       DOM properties (controlled inputs)
 ;;   :style                a string, or a plist (:color "red" :margin-top "4px")
+;;   :inner-html           HTML text from elsewhere, which the page cleans
+;;                         (no scripts, handlers or script URLs); the element
+;;                         then has no children of its own
 ;;   :key                  not rendered; identifies a child among its
 ;;                         siblings (see below)
 ;;   :ref                  not rendered; a name under which the component
@@ -424,6 +427,8 @@ FUNCTION gets the event, as a plain function prop would.  OPTIONS:
          (if value
              (react--emit "listen" dom-id (react--event-name key) (react--listener-options value))
            (react--emit "unlisten" dom-id (react--event-name key))))
+        ((eq key :inner-html)
+         (react--emit "html" dom-id (or value "")))
         ((memq key '(:value :checked))
          (react--emit "prop" dom-id (substring (symbol-name key) 1)
                       (if (eq key :checked) (and value (not (eq value :false)) t) (react--text-of (or value "")))))
@@ -514,6 +519,8 @@ and INSTANCE then renders nothing; without one, it is signalled again as
            (when (and (cadr plist) (not (memq (car plist) '(:value :checked))))
              (react--set-prop id (car plist) (cadr plist)))
            (setq plist (cddr plist))))
+       (when (and (plist-get props :inner-html) (react--element-children vnode))
+         (error "A <%s> with :inner-html has children too; it can have one or the other" tag))
        (setf (react--host-children mounted)
              (mapcar (lambda (child)
                        (let ((mounted-child (react--mount child depth)))
@@ -1003,6 +1010,7 @@ The value is a vector of operations for the host, each a vector:
   [\"listen\" ID EVENT OPTIONS]  [\"unlisten\" ID EVENT]
   [\"insert\" PARENT-ID ID BEFORE-ID]  [\"replace\" OLD-ID ID]  [\"remove\" ID]
   [\"mount\" SELECTOR ID]
+  [\"html\" ID HTML]                    cleaned HTML in the node (:inner-html)
   [\"invoke\" ID METHOD ARG...]         call a method of the DOM node
   [\"call\" REQUEST-ID COMMAND ARGUMENT]  do it and answer (`react-host-reply')
   [\"tell\" COMMAND ARGUMENT]             do it, no answer
@@ -1786,7 +1794,7 @@ before writing when tabs share a list."
         (t (let ((attributes "") (plist (react--host-props mounted)))
              (while plist
                (let* ((key (car plist))
-                      (value (and (not (react--event-name key)) (not (memq key '(:key :ref)))
+                      (value (and (not (react--event-name key)) (not (memq key '(:key :ref :inner-html)))
                                   (react--attribute-value key (cadr plist)))))
                  (when value
                    (setq attributes (concat attributes " " (substring (symbol-name key) 1)
