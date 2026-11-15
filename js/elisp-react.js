@@ -219,7 +219,7 @@ function base64(buffer) {
   return btoa(text);
 }
 
-function createHost(reply, fetchFunction) {
+function createHost(reply, fetchFunction, address) {
   const pending = new Map();   // request -> cancel function
   const commands = {
     timeout(request, milliseconds) {
@@ -299,6 +299,17 @@ function createHost(reply, fetchFunction) {
   };
   const sockets = new Map();   // request -> WebSocket
   const notices = {
+    navigate({ url, replace }) { address.navigate(url, Boolean(replace)); },
+    "history-go"({ delta }) { address.go(delta); },
+    title({ text }) { document.title = text; },
+    meta({ name, content }) {
+      // og:… and twitter:… are properties; the rest are names.
+      const attribute = /^(og|article|profile|video|music|book):/.test(name) ? "property" : "name";
+      let meta = [...document.head.querySelectorAll(`meta[${attribute}]`)].find((each) => each.getAttribute(attribute) === name);
+      if (content === null || content === undefined) { meta?.remove(); return; }
+      if (!meta) { meta = document.createElement("meta"); meta.setAttribute(attribute, name); document.head.append(meta); }
+      meta.setAttribute("content", content);
+    },
     "websocket-send"({ request, data }) {
       const socket = sockets.get(request);
       if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("the connection is not open");
@@ -344,6 +355,58 @@ function createHost(reply, fetchFunction) {
     },
     cancelAll() {
       for (const request of [...pending.keys()]) this.cancel(request);
+    },
+  };
+}
+
+// ---- the address ----------------------------------------------------------------
+// Lisp reads the page's address and moves through its history.  A page in
+// elisp-studio's preview (about:srcdoc) has no address of its own: there the
+// host keeps one in memory, starting at "/", and follows hash links itself.
+
+function createLocation(mode, changed) {
+  const memory = mode === "memory" || (mode !== "browser" && location.href === "about:srcdoc");
+  const entries = [new URL(memory ? "/" : location.href, "http://app.invalid").href], at = { index: 0 };
+  const current = () => new URL(memory ? entries[at.index] : location.href);
+  const describe = () => {
+    const url = current();
+    return { href: memory ? url.pathname + url.search + url.hash : url.href, pathname: url.pathname, search: url.search, hash: url.hash };
+  };
+  if (!memory) {
+    addEventListener("popstate", () => changed(describe()));
+    addEventListener("hashchange", () => changed(describe()));
+  } else {
+    // A hash link would load the studio into the frame: follow it here.
+    document.addEventListener("click", (event) => {
+      const link = event.target?.closest?.("a[href]");
+      const href = link?.getAttribute("href");
+      if (!href || !href.startsWith("#") || event.defaultPrevented) return;
+      event.preventDefault();
+      navigate(href, false);
+    });
+  }
+  function navigate(url, replace) {
+    if (memory) {
+      const next = new URL(url, current()).href;
+      if (replace) entries[at.index] = next;
+      else { entries.splice(at.index + 1, Infinity, next); at.index += 1; }
+      changed(describe());
+      return;
+    }
+    const next = new URL(url, location.href);
+    if (next.origin !== location.origin) { location.assign(next.href); return; }
+    history[replace ? "replaceState" : "pushState"](null, "", next.href);
+    changed(describe());
+  }
+  return {
+    describe,
+    navigate,
+    go(delta) {
+      if (!memory) { history.go(delta); return; }
+      const index = Math.min(Math.max(at.index + delta, 0), entries.length - 1);
+      if (index === at.index) return;
+      at.index = index;
+      changed(describe());
     },
   };
 }
@@ -459,6 +522,9 @@ function reportError(error) {
  *             <script type="text/emacs-lisp"> elements
  *   fetch     a function to use instead of the browser's fetch for
  *             `react-fetch' (a development tool answers some URLs itself)
+ *   location  "browser": the page's address; "memory": one kept by the host
+ *             (the default where the page has none, as in elisp-studio's
+ *             preview, about:srcdoc)
  *   timeout   milliseconds Lisp may take to answer an event or a reply
  *             (default 30000, or <meta name="elisp-react:timeout">; 0: no
  *             limit).  Lisp that takes longer (an endless loop) cannot be
@@ -471,7 +537,8 @@ function reportError(error) {
  * "all" (the whole package, from a server without range requests).
  */
 export async function start({ wasmacs = wasmacsBase(), library = new URL("../lisp/react.el", import.meta.url), sources = null,
-                              fetch: fetchFunction = (...args) => fetch(...args), timeout = lispTimeout() } = {}) {
+                              fetch: fetchFunction = (...args) => fetch(...args), timeout = lispTimeout(),
+                              location: locationMode = "auto" } = {}) {
   const { createEmacsEvalService } = await import(new URL("app/src/emacs-eval-client.js", wasmacs).href);
   const emacs = createEmacsEvalService({ onOutput: (text) => console.log(`[emacs] ${text.trimEnd()}`) });
 
@@ -501,9 +568,14 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   const dispatch = (id, name, event) => {
     if (!stopped) apply(emacs.call("react-dispatch-event", id, name, event), `the ${name} event`);
   };
+  // Lisp hears of a new address after the DOM changes it is part of.
+  let started = false;
+  const address = createLocation(locationMode, (described) => {
+    if (started && !stopped) queueMicrotask(() => apply(emacs.call("react--location-changed", described), "a new address"));
+  });
   host = createHost((request, ok, value) => {
     if (!stopped) apply(emacs.call("react-host-reply", request, ok, value), "an answer from the page");
-  }, fetchFunction);
+  }, fetchFunction, address);
   dom = createDom(dispatch, host);
 
   if (!sources) {
@@ -515,6 +587,8 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   const [info, libraryText] = await Promise.all([emacs.ready, fetchText(library)]);
   await loadLisp(emacs, info.version, new URL(library, location.href).href, libraryText);
   await emacs.call("react--storage-load", storedEntries());
+  await emacs.call("react--location-set", address.describe());
+  started = true;
   // Another tab of this page stored or removed a value: Lisp's copy follows,
   // and the functions watching that key run.
   addEventListener("storage", (event) => {

@@ -137,6 +137,8 @@ A connection (`react-websocket`, `react-event-source`) is such a request that is
 
 A command the host does not know is looked up in `globalThis.elispReactCommands`, the page's own: the page extends the host without editing `elisp-react.js`, and it is the app frame's window, so the same page works in elisp-studio's preview. The other way, `send(name, ...args)` calls a Lisp function and flushes in one request (`react-page-call`).
 
+The address is data too. The host hands Lisp `(:href :pathname :search :hash)` before the page's Lisp is loaded, so a render can read it, and calls `react--location-changed` after `popstate`, `hashchange` or a `navigate` notice (`pushState` fires no event). A page with no address, elisp-studio's preview in an `about:srcdoc` frame, gets one in memory: `pushState` there throws, and a hash link would load the studio into the frame, so the host keeps the entries and follows hash links itself.
+
 ### async / await
 
 `react-async` is a macro over `iter-lambda` from Emacs's `generator.el`, which rewrites a body into a state machine that can stop at `iter-yield` and be resumed. `(react-await X)` yields the awaitable `X`, a function of `(RESOLVE REJECT)`. The runner, `react--async-step`, calls the awaitable with two functions that resume the generator with `(react--resolved . VALUE)` or `(react--rejected . MESSAGE)`; `react-await` turns the latter into the signal `react-async-error` inside the body, so an ordinary `condition-case` around an await handles a failure.

@@ -1038,6 +1038,89 @@ conditionals may contain awaits; an `unwind-protect' cleanup form and a
   (declare (indent 0))
   `(react--async-step (funcall (iter-lambda () ,@body)) nil))
 
+;;;; The page: its address
+
+(defvar react--location nil "The page's address: (:href :pathname :search :hash).")
+(defvar react--location-watchers nil "Functions called with a new address.")
+
+(defun react--location-set (location)
+  (setq react--location location)
+  nil)
+
+(defun react--location-changed (location)
+  "The page has a new address, LOCATION.  Returns the DOM operations that follow."
+  (setq react--location location)
+  (dolist (function react--location-watchers) (funcall function location))
+  (react-flush))
+
+(defun react-location (&optional part)
+  "The page's address: a plist (:href :pathname :search :hash), or its PART.
+Known from the start on, so a render can read it.  In elisp-studio's
+preview the address is one the host keeps (it starts at \"/\")."
+  (if part (plist-get react--location part) react--location))
+
+(defun react-location-watch (function)
+  "Call FUNCTION with the new address (see `react-location') whenever it
+changes: a link, Back or Forward, `react-navigate'.  Returns a handle for
+`react-location-unwatch'."
+  (push function react--location-watchers)
+  function)
+
+(defun react-location-unwatch (handle)
+  "Stop the watcher HANDLE of `react-location-watch'."
+  (setq react--location-watchers (delq handle react--location-watchers))
+  nil)
+
+(defun react-navigate (url &optional replace)
+  "Go to URL: a new entry in the history (with REPLACE, the current one is
+replaced).  Within the page's origin the page stays and the watchers of
+`react-location-watch' run; another origin is loaded."
+  (react--emit "tell" "navigate" (list :url url :replace (and replace t)))
+  nil)
+
+(defun react-history-go (delta)
+  "Move DELTA entries in the history: -1 is Back."
+  (react--emit "tell" "history-go" (list :delta delta))
+  nil)
+
+(defun react-set-title (text)
+  "Make TEXT the document's title."
+  (react--emit "tell" "title" (list :text text))
+  nil)
+
+(defun react-set-meta (name content)
+  "Set the <meta> NAME (\"description\", \"og:title\", ...) to CONTENT;
+nil removes it."
+  (react--emit "tell" "meta" (list :name name :content content))
+  nil)
+
+(defun react-url-query (search)
+  "The query string SEARCH (\"?q=%E6%8B%AC&page=2\", with or without
+\"?\") as an alist ((\"q\" . \"括\") (\"page\" . \"2\")).
+Escapes are read as UTF-8; \"+\" is a space."
+  (let ((search (if (string-prefix-p "?" (or search "")) (substring search 1) (or search ""))))
+    (delq nil
+          (mapcar (lambda (pair)
+                    (unless (string-empty-p pair)
+                      (let ((at (string-search "=" pair)))
+                        (cons (react--unescape (if at (substring pair 0 at) pair))
+                              (react--unescape (if at (substring pair (1+ at)) ""))))))
+                  (split-string search "&")))))
+
+(defun react--unescape (text)
+  "TEXT of a URL with its %XX escapes and \"+\" undone, read as UTF-8."
+  (let ((bytes (encode-coding-string (string-replace "+" " " text) 'utf-8))
+        (out nil) (i 0))
+    (while (< i (length bytes))
+      (let ((byte (aref bytes i)))
+        (if (and (= byte ?%) (<= (+ i 3) (length bytes))
+                 (string-match-p "\\`[0-9A-Fa-f][0-9A-Fa-f]\\'" (substring bytes (1+ i) (+ i 3))))
+            (progn (push (string-to-number (substring bytes (1+ i) (+ i 3)) 16) out)
+                   (setq i (+ i 3)))
+          (push byte out)
+          (setq i (1+ i)))))
+    (react--valid-text (decode-coding-string (apply #'unibyte-string (nreverse out)) 'utf-8))))
+
 ;;;; Queries
 
 ;; Data that components fetch, kept by key and shared: two components that
@@ -1225,6 +1308,7 @@ before writing when tabs share a list."
   (clrhash react--storage)
   (clrhash react--storage-watchers)
   (clrhash react--queries)
+  (setq react--location nil react--location-watchers nil)
   (setq react--warned-invalid nil)
   nil)
 
