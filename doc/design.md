@@ -135,6 +135,8 @@ A `:ref` names an element for the component that rendered it. `react-invoke` emi
 
 A connection (`react-websocket`, `react-event-source`) is such a request that is answered again and again, like an interval: every message is one answer, with its `:type`, and after `close` the request is forgotten. A message costs a round trip to Emacs and a render, so a socket that sends many messages a second keeps Emacs busy.
 
+A command the host does not know is looked up in `globalThis.elispReactCommands`, the page's own: the page extends the host without editing `elisp-react.js`, and it is the app frame's window, so the same page works in elisp-studio's preview. The other way, `send(name, ...args)` calls a Lisp function and flushes in one request (`react-page-call`).
+
 ### async / await
 
 `react-async` is a macro over `iter-lambda` from Emacs's `generator.el`, which rewrites a body into a state machine that can stop at `iter-yield` and be resumed. `(react-await X)` yields the awaitable `X`, a function of `(RESOLVE REJECT)`. The runner, `react--async-step`, calls the awaitable with two functions that resume the generator with `(react--resolved . VALUE)` or `(react--rejected . MESSAGE)`; `react-await` turns the latter into the signal `react-async-error` inside the body, so an ordinary `condition-case` around an await handles a failure.

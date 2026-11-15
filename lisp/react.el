@@ -769,6 +769,11 @@ Runs the element's listener and returns the DOM operations that follow."
 The value is only good for `react-invoke'."
   (cdr (assoc name (react--instance-refs self))))
 
+(defun react-node-id (ref)
+  "The number by which the page knows the DOM node of REF (`react-ref'),
+for a command of the page: its `node(id)' returns the node."
+  (and ref (react--host-dom-id ref)))
+
 (defun react-invoke (self name method)
   "Call METHOD on the DOM node of the element SELF rendered with :ref NAME.
 METHOD is one of \"focus\", \"blur\", \"select\", \"click\" and
@@ -794,6 +799,20 @@ This is what `react-set-timeout' and `react-fetch' are made of."
     (when function (puthash id (cons function keep) react--requests))
     (react--emit "call" id command argument)
     id))
+
+(defun react-host-tell (command argument)
+  "Tell the host to do COMMAND with ARGUMENT (JSON data); no answer.
+COMMAND is one of the host's notices or one the page registered in
+`globalThis.elispReactCommands' (see the README)."
+  (react--emit "tell" command argument)
+  nil)
+
+(defun react-page-call (name args)
+  "The page's script calls the Lisp function NAME (a string) with ARGS (a
+vector of JSON data): `window.elispReact.send(NAME, ...ARGS)'.  Returns
+the DOM operations that follow."
+  (apply (intern name) (append args nil))
+  (react-flush))
 
 (defun react-cancel (request)
   "Forget REQUEST (a timer, a fetch): its function will not be called."

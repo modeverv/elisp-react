@@ -116,6 +116,20 @@ try {
   await client.send("Target.closeTarget", { targetId: other.targetId });
   pass("storage: a value stored in another tab reaches Lisp (react-storage-watch), so tabs merge instead of losing entries");
 
+  // ---- commands of the page --------------------------------------------------------
+  await open("page-commands");
+  await until("document.querySelector('.ticks').textContent === '3' && document.querySelector('.double').textContent === '42'", "the page answers Lisp");
+  assert.equal(await text(".width"), "240");
+  assert.equal(await text(".refused"), "nil no, thank you");
+  assert.equal(await js("document.title"), "titled by Lisp");
+  await pause(200);
+  assert.equal(await js("window.tickerStopped"), 3);
+  assert.equal(await text(".ticks"), "3");
+  pass("page commands: Lisp calls commands the page registered (answers, repeated answers, refusals, a DOM node, a notice); react-cancel stops one");
+  await js("window.elispReact.send('page-greet', 'page', 7)");
+  assert.equal(await text(".greeting"), "hello page 7");
+  pass("page commands: the page's script calls a Lisp function (elispReact.send) and the page shows the result when it resolves");
+
   console.log("e2e host passed");
 } finally {
   client?.close();

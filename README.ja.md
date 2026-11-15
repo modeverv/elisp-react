@@ -146,6 +146,26 @@ Lisp はページに応答している間しか動きません。待つことも
 | `(react-storage-watch KEY F)`、`(react-storage-unwatch HANDLE)` | 同じページの別のタブが `KEY` を変えたとき、Lisp の写しは新しい値になり、`F` がそれを受け取ります（消されたときは nil）。タブ間でリストを共有するなら、書く前にマージするか、描き直します。 |
 | 要素の `:ref "name"`、`(react-focus SELF "name")`、`(react-invoke SELF "name" METHOD)` | コンポーネントが描画した要素の DOM ノードに対して `focus`、`blur`、`select`、`click`、`scrollIntoView` を呼びます。その描画の DOM 変更のあとに実行されます（`:did-update` か `:did-mount` の中で使います）。 |
 
+ホストにできないことも、ページ自身のスクリプトならでき、両者は話せます。
+
+```html
+<script>
+  // Lisp が呼べるコマンド: (react-host-call "width" ID FUNCTION) と (react-host-tell "set-title" TEXT)。
+  window.elispReactCommands = {
+    width(id, { reply, node }) { reply(node(id).getBoundingClientRect().width); },
+    "set-title"(text) { document.title = text; },
+  };
+  // スクリプトが呼ぶ Lisp の関数。Promise が解決したとき、ページはその変更を表示しています。
+  document.addEventListener("elisp-react:ready", () => window.elispReact.send("my-app-resized", innerWidth));
+</script>
+```
+
+| | |
+|---|---|
+| `window.elispReactCommands[NAME] = (ARGUMENT, { reply, fail, node }) => CANCEL` | ページのコマンド。`reply(VALUE)` で Lisp に答え（Lisp がリクエストを保っていれば何度でも）、`fail(MESSAGE)` で失敗を答えます。`node(ID)` は Lisp が `ID` で呼ぶ DOM ノードです。返した関数は `react-cancel` のときに呼ばれます。通知は `(ARGUMENT, { node })` を受け取ります。 |
+| `(react-host-call NAME ARGUMENT FUNCTION [KEEP])`、`(react-host-tell NAME ARGUMENT)`、`(react-node-id (react-ref SELF "name"))` | そのコマンドを呼びます（`FUNCTION` は `OK` と値を受け取ります）。答えの要らないものは `react-host-tell` で伝えます。`react-node-id` は `node(ID)` に渡すノードの番号です。 |
+| `window.elispReact.send(NAME, ...ARGS)` | Lisp の関数 `NAME` を `ARGS`（JSON のデータ）で呼び、変わったところを描きます。ページが更新されたときに解決します。 |
+
 ログインについて、ページ側で決まっていることは次のとおりです（2026-11-15 に、Chrome から elisp-studio のプロジェクトサーバーに対して、セッションの Cookie と Bearer トークンを1つのページで試しました）。
 
 - **Cookie は何もしなくても届きます。** `react-fetch` は、ブラウザの `fetch` を既定の設定のまま使います。ページ自身のサーバーへのリクエストには、そのサーバーの Cookie が付き、応答で渡された Cookie も保存されます。`HttpOnly` のセッション Cookie は、Lisp からは見えません。別のオリジンへのリクエストには、`:credentials "include"` を付けない限り Cookie が付かず、相手のサーバーの CORS の設定に従います。

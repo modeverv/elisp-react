@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>page commands</title>
+<div id="app">Loading Emacs…</div>
+<script>
+// Commands of this page, which Lisp calls with react-host-call / react-host-tell.
+window.elispReactCommands = {
+  double(argument, { reply }) { reply(argument * 2); },
+  ticker(_argument, { reply }) {
+    let n = 0;
+    const timer = setInterval(() => reply(++n), 20);
+    return () => { clearInterval(timer); window.tickerStopped = n; };
+  },
+  "set-title"(argument) { document.title = argument; },
+  width(argument, { reply, node }) { reply(Math.round(node(argument).getBoundingClientRect().width)); },
+  refuse(_argument, { fail }) { fail("no, thank you"); },
+};
+</script>
+<script type="text/emacs-lisp">
+(defvar page-app nil)
+(defun page-greet (who count)
+  (react-set-state page-app :greeting (format "hello %s %d" who count)))
+(react-define-component 'Commands
+  :initial-state (lambda (_props) nil)
+  :did-mount
+  (lambda (self)
+    (setq page-app self)
+    (react-host-call "double" 21 (lambda (_ok value) (react-set-state self :double value)))
+    (react-host-call "width" (react-node-id (react-ref self "box"))
+                     (lambda (_ok value) (react-set-state self :width value)))
+    (react-host-call "refuse" nil (lambda (ok value) (react-set-state self :refused (format "%s %s" ok value))))
+    (react-host-tell "set-title" "titled by Lisp")
+    (let (ticker)
+      (setq ticker (react-host-call "ticker" nil
+                                    (lambda (_ok value)
+                                      (react-set-state self :ticks value)
+                                      (when (>= value 3) (react-cancel ticker)))
+                                    t))))
+  :render
+  (lambda (self)
+    (jsx (div (:ref "box" :style "width: 240px")
+           (p (:class "double") (format "%s" (react-state self :double)))
+           (p (:class "width") (format "%s" (react-state self :width)))
+           (p (:class "ticks") (format "%s" (react-state self :ticks)))
+           (p (:class "refused") (format "%s" (react-state self :refused)))
+           (p (:class "greeting") (or (react-state self :greeting) ""))))))
+(react-mount '(Commands) "#app")
+</script>
+<script type="module" src="/js/elisp-react.js"></script>
+</html>

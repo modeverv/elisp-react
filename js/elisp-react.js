@@ -173,7 +173,7 @@ function createDom(dispatch, host) {
       node(id)[method]();
     },
     call(request, command, argument) { host.call(request, command, argument, (id) => nodes.get(id)); },
-    tell(command, argument) { host.tell(command, argument); },
+    tell(command, argument) { host.tell(command, argument, (id) => nodes.get(id)); },
     cancel(request) { host.cancel(request); },
   };
 
@@ -307,14 +307,34 @@ function createHost(reply, fetchFunction) {
     "storage-set"({ key, value }) { localStorage.setItem(storagePrefix() + key, value); },
     "storage-remove"({ key }) { localStorage.removeItem(storagePrefix() + key); },
   };
+  // Commands of the page itself: globalThis.elispReactCommands[name] is a
+  // function (ARGUMENT, { reply, fail, node }) that may return a function
+  // which cancels it; reply(value) answers Lisp, again and again if Lisp
+  // keeps the request.  A notice gets (ARGUMENT, { node }).
+  const pageCommand = (command) => {
+    const own = globalThis.elispReactCommands;
+    return own && Object.hasOwn(own, command) && typeof own[command] === "function" ? own[command] : null;
+  };
   return {
     call(request, command, argument, nodeOf) {
-      if (!commands[command]) throw new Error(`elisp-react: unknown host command ${command}`);
-      pending.set(request, commands[command](request, argument, nodeOf));
+      if (commands[command]) {
+        pending.set(request, commands[command](request, argument, nodeOf));
+        return;
+      }
+      const own = pageCommand(command);
+      if (!own) throw new Error(`elisp-react: unknown host command ${command}`);
+      pending.set(request, () => {});
+      const cancel = own(argument, {
+        reply: (value) => { if (pending.has(request)) reply(request, true, value ?? null); },
+        fail: (message) => { if (pending.delete(request)) reply(request, false, String(message)); },
+        node: (id) => nodeOf(id) || null,
+      });
+      if (pending.has(request)) pending.set(request, typeof cancel === "function" ? cancel : () => {});
     },
-    tell(command, argument) {
-      if (!notices[command]) throw new Error(`elisp-react: unknown host command ${command}`);
-      try { notices[command](argument); } catch (error) { console.warn("[elisp-react]", command, error); }
+    tell(command, argument, nodeOf) {
+      const notice = notices[command] || pageCommand(command);
+      if (!notice) throw new Error(`elisp-react: unknown host command ${command}`);
+      try { notice(argument, { node: (id) => nodeOf(id) || null }); } catch (error) { console.warn("[elisp-react]", command, error); }
     },
     cancel(request) {
       const cancel = pending.get(request);
@@ -463,7 +483,7 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
   // A request that is not answered within TIMEOUT (an endless loop in a
   // handler: the worker cannot be interrupted) stops the service, so that
   // the page does not look alive while nothing reacts.
-  const apply = (answer, what) => {
+  const apply = (answer, what, done = () => {}, failed = () => {}) => {
     const timer = timeout > 0 && setTimeout(() => {
       if (stopped) return;
       stopped = true;
@@ -473,8 +493,8 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
       error.symbol = "timeout";
       reportError(error);
     }, timeout);
-    answer.then((ops) => { clearTimeout(timer); if (!stopped) dom.apply(ops); })
-      .catch((error) => { clearTimeout(timer); if (!stopped) reportError(error); });
+    answer.then((ops) => { clearTimeout(timer); if (!stopped) dom.apply(ops); done(); })
+      .catch((error) => { clearTimeout(timer); if (!stopped) reportError(error); failed(error); });
   };
   // Events are answered in the order they happened: the service works on one
   // request at a time, and each answer is applied before the next arrives.
@@ -516,6 +536,15 @@ export async function start({ wasmacs = wasmacsBase(), library = new URL("../lis
       const loaded = await loadLisp(emacs, info.version, name, text);
       dom.apply(await emacs.call("react-flush"));
       return loaded;
+    },
+    // Call the Lisp function NAME with ARGS (JSON data) and render what it
+    // changed: how page JavaScript talks to Lisp.  Resolves when the page
+    // has been updated.
+    send(name, ...args) {
+      return new Promise((resolve, reject) => {
+        if (stopped) { reject(new Error("elisp-react: Emacs was stopped")); return; }
+        apply(emacs.call("react-page-call", String(name), args), `the page's call of ${name}`, resolve, reject);
+      });
     },
     // Evaluate a few forms as they are (not compiled) and render.
     async run(text) {
