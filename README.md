@@ -15,6 +15,7 @@ What it comes to:
 [日本語](README.ja.md)
 
 The complete API, written so that a coding agent can work from it without guessing: [doc/api.md](doc/api.md).
+[SKILL.md](SKILL.md) is an Agent Skill that tells an agent to work from it: clone this repository into a skills directory (for Claude Code, `~/.claude/skills/elisp-react`, or `.claude/skills/elisp-react` in a project).
 
 ## A page
 
@@ -82,7 +83,7 @@ A page that starts by itself takes its settings from `<meta>` elements. A page t
 | `location` | | (The object `start()` resolves with has `location`: `current`, `navigate(url)`, `go(delta)`, for tools around a page, and the event `elisp-react:location` says when the address changes.) `"browser"`: the page's address. `"memory"`: one the host keeps, starting at `/`, with its own history; hash links are followed there. The default is `"browser"`, and `"memory"` where the page has no address (elisp-studio's preview, `about:srcdoc`). |
 | `compiled` | `elisp-react:compiled` | A manifest made by `tools/compile.mjs`: files whose source matches are not compiled in the page. |
 | `cache` | `elisp-react:cache` | Where compiled code is kept: `true` or `"local"` (`localStorage`, the default), `"session"` (this tab only), `false` (`"none"` in the meta: compile at every start, keep nothing; a development tool's "restart"). |
-| `storage` | `elisp-react:storage` | The name under which `react-storage-set` keeps the page's values (default: the page's directory; `/app/` and `/app/index.html` are one page). |
+| `storage` | `elisp-react:storage` | The name under which `react-storage-set` keeps the page's values (default: the page's path without a final `index.html`: `/app/` and `/app/index.html` are one page, `/app/other.html` is another). |
 | `library`, `sources`, `fetch` | | `react.el`'s URL; Lisp to load instead of the page's scripts; a function to use instead of `fetch` (for development tools). |
 
 If `elisp-react.js` itself cannot be loaded (no network, a blocked CDN), nothing runs, not even the error box. A page that wants to say so can add a few lines:
@@ -126,8 +127,10 @@ It is an example, not a server for an application: no sign-in, no cookies or ses
 ## What is where
 
 ```text
-lisp/react.el          React: elements, jsx, components, state, keyed reconciler, timers, fetch, storage, async/await (910 lines of Emacs Lisp)
-js/elisp-react.js      the host: starts Emacs, applies DOM operations, forwards events, answers requests, compiles and caches the Lisp (350 lines)
+lisp/react.el          React: elements, jsx, components, state, keyed reconciler, timers, fetch, storage, async/await (2,100 lines of Emacs Lisp)
+lisp/react-testing.el  a page made of Lisp data, for an application's tests without a browser (300 lines)
+js/elisp-react.js      the host: starts Emacs, applies DOM operations, forwards events, answers requests, compiles and caches the Lisp (1,100 lines)
+doc/api.md             the complete API, written so that a coding agent can work from it
 examples/counter/      a component with state
 examples/counters/     state in a parent, props down, events up, a list, a controlled input
 examples/todo/         a TODO list: jsx, keyed rows with state of their own, filters, reordering, localStorage
@@ -184,7 +187,7 @@ Lisp runs only while it answers the page: it cannot wait and cannot reach into t
 | `(react-listen-page TARGET EVENT F :keys KEYS :prevent t :throttle MS)` | Events of the `window` or the `document`: keys pressed anywhere, `resize`, `scroll`, `visibilitychange`. `F` gets `(:type :key :width :height :x :y :visibility)`. `:keys` takes only those keys, `:prevent` keeps the browser from acting on them (a `/` shortcut), `:throttle` sends one event per `MS` at most. `react-cancel` removes it. |
 | `(react-media-query QUERY F)`, `(react-observe-visible SELF "name" F :margin M :threshold T)` | `F` gets whether a CSS media query matches (`"(prefers-color-scheme: dark)"`), at once and at each change; or whether the element with that `:ref` is in view, and how much of it (an `IntersectionObserver`: "load more" at the end of a list). `react-cancel` stops them. |
 | `(react-locale [PART])`, `(react-intl ITEMS F [LOCALE])`, `(react-intl-async ITEMS)` | The page's Emacs runs in the C locale (English names, code-point order, and `format-time-string` ignores a time zone other than UTC). `react-locale` is the visitor's `(:languages :timeZone :offset)`, known from the start; `react-intl` has the browser's `Intl` write numbers (`(:type number :value 1234567 :options (:notation "compact"))` gives "123万" in Japanese), dates, relative times, plural categories and lists, or sort strings for the locale. `F` gets the texts later: keep them in state. |
-| `(react-location [PART])`, `(react-location-watch F)`, `(react-location-unwatch HANDLE)` | The page's address, `(:href :pathname :search :hash)`, known from the start. `F` gets the new one after a link, Back or Forward, or `react-navigate`. |
+| `(react-location [PART])`, `(react-location-watch F)`, `(react-location-unwatch HANDLE)` | The page's address, `(:href :pathname :search :hash)`, known from the start. `F` gets the new one after Back or Forward, a change of the hash (a link to `#...`), or `react-navigate` within the origin; a link to another path loads another page, where no watcher runs. |
 | `(react-navigate URL [REPLACE])`, `(react-history-go DELTA)` | A new history entry (or, with `REPLACE`, the current one changed): within the page's origin the page stays and the watchers run; another origin is loaded. `DELTA` -1 is Back. |
 | `(react-set-title TEXT)`, `(react-set-meta NAME CONTENT)` | The document's title; a `<meta>` (`"description"`, or `"og:title"` and the other properties), removed with `nil`. |
 | `(react-url-query SEARCH)` | A query string as an alist, escapes read as UTF-8: `(react-url-query (react-location :search))`. |
@@ -257,7 +260,7 @@ The same asynchronous code can be written top to bottom. `react-async` runs its 
 
 | | |
 |---|---|
-| `(react-async BODY...)`, `(react-await AWAITABLE)` | Loops and conditionals may contain awaits. A failed operation signals `react-async-error` at the await. Read state again after an await: it may have changed. `react-async` returns a task, which is awaitable: its value is the body's. An await inside a `lambda`, `with-temp-buffer`, `save-excursion`, `mapcar` and the like is an error when the body is compiled (generator.el does not reach into them), and a closure made in a loop that awaits needs its own binding: `(let ((item item)) (lambda () item))`. |
+| `(react-async BODY...)`, `(react-await AWAITABLE)` | Loops and conditionals may contain awaits. A failed operation signals `react-async-error` at the await. Read state again after an await: it may have changed. `react-async` returns a task, which is awaitable: its value is the body's. An await inside a `lambda`, `with-temp-buffer`, `save-excursion`, `unwind-protect` (its body too, not only the cleanup), `mapcar` and the like is an error when the body is compiled (generator.el does not reach into them), and a closure made in a loop that awaits needs its own binding: `(let ((item item)) (lambda () item))`. |
 | `(react-task-cancel TASK)` | Stop a task: the request it waits for is cancelled, it never goes on, and those who await it get `react-async-error` ("cancelled"). A component stops its tasks when it is taken off with `react-effect`: `(react-effect self 'load (react-props self :id) (lambda () (let ((task (react-async ...))) (lambda () (react-task-cancel task)))))`. |
 | `(react-all AWAITABLES)`, `(react-race AWAITABLES)` | Awaitables over several (functions or tasks): all the values in order, failing as soon as one fails; or the first answer. |
 | `(react-sleep MS)`, `(react-fetch-async URL OPTIONS...)` (those of `react-fetch` but `:then` and `:catch`) | Awaitables. Any function of `(RESOLVE REJECT)` that calls one of them once is an awaitable. |
@@ -266,7 +269,7 @@ Data that several components or several visits of a page read is kept by key:
 
 | | |
 |---|---|
-| `(react-query SELF KEY LOADER :stale-ms MS)` | In a render: the data under `KEY` (any Lisp data, compared with `equal`), loaded by `LOADER`, a function that returns an awaitable (`(lambda () (react-fetch-async "/videos.json"))`). Returns `(:status STATUS :data DATA :error ERROR :fetching BOOL)`, `STATUS` being `loading`, `success` or `error`. Components that ask for one key share its request and its data; a component that comes back shows the data at once, and a key older than `:stale-ms` (default 0) is loaded again in the background. The component renders again when the data arrives, `:pure` or not. |
+| `(react-query SELF KEY LOADER :stale-ms MS)` | In a render: the data under `KEY` (any Lisp data, compared with `equal`), loaded by `LOADER`, a function of no arguments that returns a function of `(RESOLVE REJECT)` (`(lambda () (react-fetch-async "/videos.json"))`); a `react-async` task is not accepted there (the render fails). Returns `(:status STATUS :data DATA :error ERROR :fetching BOOL)`, `STATUS` being `loading`, `success` or `error`. Components that ask for one key share its request and its data; a component that comes back shows the data at once, and a key older than `:stale-ms` (default 0) is loaded again in the background. The component renders again when the data arrives, `:pure` or not. |
 | `(react-invalidate PREFIX)`, `(react-query-set KEY DATA)`, `(react-query-data KEY)` | Make every key that is `PREFIX`, or a list that starts with the list `PREFIX`, stale: it is loaded again, and an answer on its way is dropped. Put data under a key by hand (an optimistic update). Read a key without depending on it. |
 
 By default a component renders again whenever its parent does. A component can decline:
@@ -316,10 +319,16 @@ Lisp answers an event after the browser has acted on it, too late to stop a link
 
 | | |
 |---|---|
-| `react-testing-render`, `react-testing-load`, `react-testing-reset`, `react-testing-storage`, `react-testing-location` | Start afresh: render an element, or load a file that mounts itself; values in the page's storage and its address beforehand. |
+| `react-testing-render`, `react-testing-load`, `react-testing-reset`, `react-testing-storage`, `react-testing-location` | Start afresh: render an element, or load a file that mounts itself. `react-testing-render` and `react-testing-load` reset the storage and the address, so to start with stored values or another address: `react-testing-reset`, then `react-testing-storage` and `react-testing-location`, then `react-mount` or `load`, then `react-testing-flush`. |
 | `react-testing-find`, `react-testing-find-all` (`:tag :class :text :attribute`), `react-testing-text`, `react-testing-attribute`, `react-testing-property`, `react-testing-html` | Find elements and read them. |
 | `react-testing-click`, `react-testing-input`, `react-testing-key`, `react-testing-submit`, `react-testing-dispatch` | Do what a visitor does; events go up through the parents as in a browser. |
 | `react-testing-answer-fetch STATUS TEXT`, `react-testing-answer COMMAND VALUE`, `react-testing-time-passes`, `react-testing-requests`, `react-testing-told` | Be the page for what Lisp asked: answer a fetch, fire the timers, look at what is waiting and what Lisp told the page. |
+
+Run them with the application's directory on `load-path` (`react-testing-load` and `load` look for a relative file name there, not in the current directory):
+
+```sh
+emacs --batch -Q -L path/to/elisp-react/lisp -L . -l app-test.el -f ert-run-tests-batch-and-exit
+```
 
 `test/react-testing-test.el` tests three of the examples this way. To run the tests in the page's own Emacs 30.2 rather than a native one, wasmacs has `tools/scripts/ert.mjs`.
 

@@ -15,6 +15,7 @@ Emacs Lisp で書いた React です。
 [English](README.md)
 
 API の完全な仕様は [doc/api.md](doc/api.md)（英語）にあります。コーディングエージェントが推測せずにアプリケーションを書けるように書いたものです。
+[SKILL.md](SKILL.md) は、エージェントにそれを読んで実装するよう指示する Agent Skill です。このリポジトリを skills のディレクトリに clone して使います（Claude Code なら `~/.claude/skills/elisp-react`、プロジェクトごとなら `.claude/skills/elisp-react`）。
 
 ## ページの書き方
 
@@ -82,7 +83,7 @@ API の完全な仕様は [doc/api.md](doc/api.md)（英語）にあります。
 | `location` | | （`start()` が返すオブジェクトには `location` があり、`current`、`navigate(url)`、`go(delta)` でページの外のツールから扱えます。アドレスが変わるとイベント `elisp-react:location` が出ます。）`"browser"` はページのアドレス。`"memory"` はホストが持つアドレスで、`/` から始まり、履歴も持ち、ハッシュのリンクもそこでたどります。既定は `"browser"` で、ページにアドレスが無いとき（elisp-studio のプレビュー、`about:srcdoc`）は `"memory"` です。 |
 | `compiled` | `elisp-react:compiled` | `tools/compile.mjs` で作ったマニフェスト。ソースが一致するファイルは、ページの中でコンパイルしません。 |
 | `cache` | `elisp-react:cache` | コンパイル結果を置く場所: `true` か `"local"`（`localStorage`、既定）、`"session"`（このタブだけ）、`false`（meta では `"none"`。起動のたびにコンパイルし、何も保存しません。開発用ツールの「再起動」）。 |
-| `storage` | `elisp-react:storage` | `react-storage-set` がページの値を置く名前（既定はページのディレクトリ。`/app/` と `/app/index.html` は同じページです）。 |
+| `storage` | `elisp-react:storage` | `react-storage-set` がページの値を置く名前（既定はページのパスから末尾の `index.html` を除いたもの。`/app/` と `/app/index.html` は同じページで、`/app/other.html` は別のページです）。 |
 | `library`、`sources`、`fetch` | | `react.el` の URL、ページのスクリプトの代わりに読み込む Lisp、`fetch` の代わりに使う関数（開発用ツール向け）。 |
 
 `elisp-react.js` 自体が読み込めないと（ネットワークが無い、CDN が遮断されている）、エラーの帯も含めて何も動きません。そう知らせたいページは、数行を足せます。
@@ -126,8 +127,10 @@ examples/server/notes.el    両方が読み込む。リストを変更する関�
 ## 構成
 
 ```text
-lisp/react.el          React 本体: 要素、jsx、コンポーネント、state、key つきの差分計算、タイマー、fetch、保存、async/await（Emacs Lisp 910行）
-js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送、依頼への応答、Lisp のコンパイルとキャッシュ（350行）
+lisp/react.el          React 本体: 要素、jsx、コンポーネント、state、key つきの差分計算、タイマー、fetch、保存、async/await（Emacs Lisp 2,100行）
+lisp/react-testing.el  Lisp のデータでできたページ。ブラウザなしでアプリケーションをテストする（300行）
+js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送、依頼への応答、Lisp のコンパイルとキャッシュ（1,100行）
+doc/api.md             完全な API。コーディングエージェントがそのまま使えるように書いたもの
 examples/counter/      state を持つコンポーネント
 examples/counters/     親が state を持ち、props で渡し、イベントで戻す例。リストと入力欄つき
 examples/todo/         TODO リスト。jsx、自分の state を持つ key つきの行、フィルタ、並べ替え、localStorage への保存
@@ -184,7 +187,7 @@ Lisp はページに応答している間しか動きません。待つことも
 | `(react-listen-page TARGET EVENT F :keys KEYS :prevent t :throttle MS)` | `window` か `document` のイベント。どこで押されたキーでも、`resize`、`scroll`、`visibilitychange` も受け取れます。`F` は `(:type :key :width :height :x :y :visibility)` を受け取ります。`:keys` はそのキーだけを受け取り、`:prevent` はブラウザにそのキーの既定の動作をさせません（`/` のショートカット）。`:throttle` は `MS` ごとに多くても1回だけ送ります。`react-cancel` で外します。 |
 | `(react-media-query QUERY F)`、`(react-observe-visible SELF "name" F :margin M :threshold T)` | `F` は、CSS のメディアクエリが合うかどうか（`"(prefers-color-scheme: dark)"`）を、すぐと、変わるたびに受け取ります。または、その `:ref` の要素が見えているかと、どれだけ見えているかを受け取ります（`IntersectionObserver`。一覧の最後での「もっと読む」）。`react-cancel` で止めます。 |
 | `(react-locale [PART])`、`(react-intl ITEMS F [LOCALE])`、`(react-intl-async ITEMS)` | ページの Emacs は C ロケールで動きます（英語の名前、コードポイント順。`format-time-string` は UTC 以外のタイムゾーンを無視します）。`react-locale` は閲覧者の `(:languages :timeZone :offset)` で、起動時から分かっています。`react-intl` はブラウザの `Intl` に、数（`(:type number :value 1234567 :options (:notation "compact"))` は日本語なら「123万」）、日時、相対時間、複数形の種類、リストを書かせ、またはロケールに合わせて文字列を並べ替えさせます。`F` は後で文字列を受け取るので、state に入れておきます。 |
-| `(react-location [PART])`、`(react-location-watch F)`、`(react-location-unwatch HANDLE)` | ページのアドレス `(:href :pathname :search :hash)`。起動時から分かっています。リンク、戻る・進む、`react-navigate` のあと、`F` が新しいアドレスを受け取ります。 |
+| `(react-location [PART])`、`(react-location-watch F)`、`(react-location-unwatch HANDLE)` | ページのアドレス `(:href :pathname :search :hash)`。起動時から分かっています。戻る・進む、ハッシュの変化（`#...` へのリンク）、同じオリジンの中での `react-navigate` のあと、`F` が新しいアドレスを受け取ります。別のパスへのリンクは別のページを読み込むので、そこでは呼ばれません。 |
 | `(react-navigate URL [REPLACE])`、`(react-history-go DELTA)` | 履歴に新しい項目を加えます（`REPLACE` なら今の項目を変えます）。同じオリジンならページはそのままで、監視している関数が呼ばれます。別のオリジンなら読み込みます。`DELTA` が -1 なら「戻る」です。 |
 | `(react-set-title TEXT)`、`(react-set-meta NAME CONTENT)` | 文書のタイトル。`<meta>`（`"description"`、または `"og:title"` などのプロパティ）。`nil` で消します。 |
 | `(react-url-query SEARCH)` | クエリ文字列を alist にします。エスケープは UTF-8 として読みます: `(react-url-query (react-location :search))`。 |
@@ -257,7 +260,7 @@ connect-src 'self' WASMACS; style-src 'self'; img-src 'self' data:
 
 | | |
 |---|---|
-| `(react-async BODY...)`、`(react-await AWAITABLE)` | ループや条件分岐の中でも await できます。処理が失敗すると、その await の位置で `react-async-error` が発生します。await のあとでは state が変わっている可能性があるので、読み直してください。`react-async` はタスクを返し、タスクも await できます（値は本体の値です）。`lambda`、`with-temp-buffer`、`save-excursion`、`mapcar` などの中の await は、本体をコンパイルするときにエラーになります（generator.el がその中まで書き換えないため）。await するループの中で作るクロージャには、自分の束縛が要ります: `(let ((item item)) (lambda () item))`。 |
+| `(react-async BODY...)`、`(react-await AWAITABLE)` | ループや条件分岐の中でも await できます。処理が失敗すると、その await の位置で `react-async-error` が発生します。await のあとでは state が変わっている可能性があるので、読み直してください。`react-async` はタスクを返し、タスクも await できます（値は本体の値です）。`lambda`、`with-temp-buffer`、`save-excursion`、`unwind-protect`（後始末だけでなく本体も）、`mapcar` などの中の await は、本体をコンパイルするときにエラーになります（generator.el がその中まで書き換えないため）。await するループの中で作るクロージャには、自分の束縛が要ります: `(let ((item item)) (lambda () item))`。 |
 | `(react-task-cancel TASK)` | タスクを止めます。待っているリクエストを取り消し、本体はそれ以上進まず、await している側には `react-async-error`（"cancelled"）が届きます。部品が外されるときにタスクを止めるには `react-effect` を使います: `(react-effect self 'load (react-props self :id) (lambda () (let ((task (react-async ...))) (lambda () (react-task-cancel task)))))`。 |
 | `(react-all AWAITABLES)`、`(react-race AWAITABLES)` | いくつか（関数かタスク）をまとめて待つ await できるもの。すべての値を順に返し、1つでも失敗するとすぐ失敗します。または、最初の答えを返します。 |
 | `(react-sleep MS)`、`(react-fetch-async URL OPTIONS...)`（`react-fetch` の引数から `:then` と `:catch` を除いたもの） | await できるものです。`(RESOLVE REJECT)` を受け取り、どちらかを1回呼ぶ関数なら何でも await できます。 |
@@ -266,7 +269,7 @@ connect-src 'self' WASMACS; style-src 'self'; img-src 'self' data:
 
 | | |
 |---|---|
-| `(react-query SELF KEY LOADER :stale-ms MS)` | 描画の中で使います。`KEY`（`equal` で比べる任意の Lisp データ）のデータを、`LOADER` で読み込みます。`LOADER` は await できるものを返す関数です（`(lambda () (react-fetch-async "/videos.json"))`）。返り値は `(:status STATUS :data DATA :error ERROR :fetching BOOL)` で、`STATUS` は `loading`、`success`、`error` のどれかです。同じキーを求める部品はリクエストとデータを共有します。戻ってきた部品はデータをすぐに表示し、`:stale-ms`（既定 0）より古いキーは裏で読み込み直します。データが届くと、`:pure` かどうかにかかわらず、部品は描き直されます。 |
+| `(react-query SELF KEY LOADER :stale-ms MS)` | 描画の中で使います。`KEY`（`equal` で比べる任意の Lisp データ）のデータを、`LOADER` で読み込みます。`LOADER` は引数のない関数で、`(RESOLVE REJECT)` の関数を返します（`(lambda () (react-fetch-async "/videos.json"))`）。`react-async` のタスクは使えません（描画が失敗します）。返り値は `(:status STATUS :data DATA :error ERROR :fetching BOOL)` で、`STATUS` は `loading`、`success`、`error` のどれかです。同じキーを求める部品はリクエストとデータを共有します。戻ってきた部品はデータをすぐに表示し、`:stale-ms`（既定 0）より古いキーは裏で読み込み直します。データが届くと、`:pure` かどうかにかかわらず、部品は描き直されます。 |
 | `(react-invalidate PREFIX)`、`(react-query-set KEY DATA)`、`(react-query-data KEY)` | `PREFIX` そのもの、またはリスト `PREFIX` で始まるリストのキーをすべて古いことにします。読み込み直し、途中の答えは捨てます。キーにデータを手で置きます（楽観的な更新）。部品を依存させずにキーを読みます。 |
 
 既定では、親が再描画されると子も必ず再描画されます。コンポーネントはこれを断ることができます。
@@ -316,10 +319,16 @@ Lisp がイベントに答えるのはブラウザが動いた後なので、リ
 
 | | |
 |---|---|
-| `react-testing-render`、`react-testing-load`、`react-testing-reset`、`react-testing-storage`、`react-testing-location` | 最初からやり直します。要素を描くか、自分でマウントするファイルを読み込みます。ページの保存値とアドレスを前もって入れておけます。 |
+| `react-testing-render`、`react-testing-load`、`react-testing-reset`、`react-testing-storage`、`react-testing-location` | 最初からやり直します。要素を描くか、自分でマウントするファイルを読み込みます。`react-testing-render` と `react-testing-load` は保存値とアドレスを消します。保存値や別のアドレスから始めるときは、`react-testing-reset`、`react-testing-storage` と `react-testing-location`、`react-mount` か `load`、`react-testing-flush` の順にします。 |
 | `react-testing-find`、`react-testing-find-all`（`:tag :class :text :attribute`）、`react-testing-text`、`react-testing-attribute`、`react-testing-property`、`react-testing-html` | 要素を探して読みます。 |
 | `react-testing-click`、`react-testing-input`、`react-testing-key`、`react-testing-submit`、`react-testing-dispatch` | 閲覧者のすることをします。イベントはブラウザと同じように親へ上がっていきます。 |
 | `react-testing-answer-fetch STATUS TEXT`、`react-testing-answer COMMAND VALUE`、`react-testing-time-passes`、`react-testing-requests`、`react-testing-told` | Lisp が求めたことにページとして答えます。fetch に答え、タイマーを進め、待っているものと Lisp がページに伝えたことを見ます。 |
+
+アプリケーションのディレクトリを `load-path` に入れて実行します（`react-testing-load` と `load` は、相対のファイル名をカレントディレクトリではなく `load-path` から探します）。
+
+```sh
+emacs --batch -Q -L path/to/elisp-react/lisp -L . -l app-test.el -f ert-run-tests-batch-and-exit
+```
 
 `test/react-testing-test.el` は、この方法でサンプルを3つテストしています。ネイティブの Emacs ではなく、ページと同じ Emacs 30.2 でテストを動かすには、wasmacs の `tools/scripts/ert.mjs` を使います。
 
