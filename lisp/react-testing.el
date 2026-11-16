@@ -51,7 +51,10 @@ Each is (REQUEST COMMAND ARGUMENT).")
 
 (defun react-testing-storage (key value)
   "Have the page's storage hold VALUE (Lisp data) under KEY, as if a
-visit before had stored it.  Use it before rendering."
+visit before had stored it.  `react-testing-render' and
+`react-testing-load' start afresh and forget it, so the order is:
+`react-testing-reset', this, then `react-mount' or `load' the
+application, then `react-testing-flush'."
   (puthash key (let ((print-length nil) (print-level nil)) (prin1-to-string value)) react--storage)
   nil)
 

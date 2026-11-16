@@ -1436,8 +1436,10 @@ closes it (in :will-unmount)."
 
 (defun react-websocket-send (connection text)
   "Send TEXT on CONNECTION, a WebSocket from `react-websocket'.
-The text goes once the DOM changes of this event are applied; a
-connection that is not open yet reports an error on the page."
+The text goes once the DOM changes of this event are applied.  On a
+connection that is not open (not yet, or not any more) it is not sent:
+the page only logs a warning in its console (\"websocket-send ... the
+connection is not open\"), and Lisp is not told.  Send after :on-open."
   (react--emit "tell" "websocket-send" (list :request connection :data text))
   nil)
 
@@ -1602,8 +1604,9 @@ the page answers.  The task is the body's value to whoever awaits it
 
 BODY is a generator (see `iter-lambda'), with these rules:
 - `react-await' may be in loops and conditionals, not inside a `lambda',
-  `with-temp-buffer', `save-excursion', `mapcar' and the like, or the
-  cleanup of `unwind-protect': an error at macro expansion says so.
+  `with-temp-buffer', `save-excursion', `mapcar' and the like, or
+  `unwind-protect' (its body as well as its cleanup): an error at macro
+  expansion says so.
 - A closure made in a loop that awaits shares the loop variable with the
   others: bind it again inside, (let ((item item)) (lambda () item))."
   (declare (indent 0))
