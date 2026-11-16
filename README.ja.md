@@ -14,7 +14,7 @@ Emacs Lisp で書いた React です。
 
 [English](README.md)
 
-API の完全な仕様は [doc/api.md](doc/api.md)（英語）にあります。コーディングエージェントが推測せずにアプリケーションを書けるように書いたものです。
+API の完全な仕様は [doc/api.md](doc/api.md)（英語）にあります。Web ページ版は <https://modeverv.github.io/elisp-react/api/> です。コーディングエージェントが推測せずにアプリケーションを書けるように書いたものです。
 [SKILL.md](SKILL.md) は、エージェントにそれを読んで実装するよう指示する Agent Skill です。このリポジトリを skills のディレクトリに clone して使います（Claude Code なら `~/.claude/skills/elisp-react`、プロジェクトごとなら `.claude/skills/elisp-react`）。
 
 ## ページの書き方
@@ -131,6 +131,7 @@ lisp/react.el          React 本体: 要素、jsx、コンポーネント、stat
 lisp/react-testing.el  Lisp のデータでできたページ。ブラウザなしでアプリケーションをテストする（300行）
 js/elisp-react.js      土台: Emacs の起動、DOM 操作の適用、イベントの転送、依頼への応答、Lisp のコンパイルとキャッシュ（1,100行）
 doc/api.md             完全な API。コーディングエージェントがそのまま使えるように書いたもの
+tools/api-doc.mjs      doc/api.md をサイトの /api/ の Web ページにする（npm run docs）
 examples/counter/      state を持つコンポーネント
 examples/counters/     親が state を持ち、props で渡し、イベントで戻す例。リストと入力欄つき
 examples/todo/         TODO リスト。jsx、自分の state を持つ key つきの行、フィルタ、並べ替え、localStorage への保存
