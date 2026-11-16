@@ -7,6 +7,11 @@
 //   node tools/api-doc.mjs --in doc/api.md --out _site/api/index.html \
 //     --title "elisp-react API" --repo modeverv/elisp-react \
 //     [--ref main] [--nav "Label=URL"]... [--link "PATH=URL"]... [--version v0.1.0]
+//     [--lang ja] [--alt "English=../"]
+//
+// A heading right after a line <a id="ID"></a> has the anchor ID (and its
+// own one too): a translation keeps the anchors of the original, so its
+// links work and --alt, the other language, opens at the same place.
 //
 // --link sends a link to PATH (relative to the repository, or a full URL,
 // with or without an anchor) to URL instead, e.g. the API page of a sibling
@@ -26,7 +31,14 @@ for (const key of ["in", "out", "title", "repo"]) {
   if (!args[key]) throw new Error(`--${key} is required`);
 }
 const ref = args.ref || "main";
-const source = readFileSync(args.in, "utf8");
+const ja = args.lang === "ja";
+const words = ja
+  ? { filter: "絞り込み（名前、言葉）", filterLabel: "目次を絞り込む", contents: "目次", none: "該当なし", copy: "コピー", copied: "コピーしました", select: "選択してください", self: "この節へのリンク",
+      footer: (link) => `${link} から作成しました。Markdown が正本です。` }
+  : { filter: "Filter (a name, a word)", filterLabel: "Filter the contents", contents: "Contents", none: "Nothing matches.", copy: "Copy", copied: "Copied", select: "Select it", self: "Link to this section",
+      footer: (link) => `Generated from ${link}. The Markdown is the source: agents can read it as it is.` };
+// <a id="ID"></a> on the line before a heading: the heading's anchor.
+const source = readFileSync(args.in, "utf8").replace(/^<a id="([^"]+)"><\/a>[ \t]*\n(#{1,6} [^\n]*)$/gm, "$2 <!--id:$1-->");
 const sourceDir = posix.dirname(args.in.replace(/\\/g, "/").replace(/^\.\//, ""));
 const links = args.link.map((pair) => {
   const at = pair.indexOf("=");
@@ -102,17 +114,22 @@ const marked = new Marked({
   gfm: true,
   renderer: {
     heading({ tokens, depth }) {
-      const html = this.parser.parseInline(tokens);
-      const id = slug(unescape(html.replace(/<[^>]*>/g, "")));
+      let html = this.parser.parseInline(tokens);
+      const explicit = /\s*<!--id:([^>]*)-->\s*$/.exec(html);
+      if (explicit) html = html.slice(0, explicit.index);
+      const own = slug(unescape(html.replace(/<[^>]*>/g, "")));
+      const id = explicit ? explicit[1] : own;
+      // GitHub's anchor of the heading as written, as well.
+      const alias = id !== own ? `<a class="alias" id="${own}" aria-hidden="true"></a>` : "";
       if (depth >= 2 && depth <= 4) headings.push({ depth, id, html });
-      const self = depth >= 2 ? `<a class="self" href="#${id}" aria-label="Link to this section">#</a>` : "";
-      return `<h${depth} id="${id}">${html}${self}</h${depth}>\n`;
+      const self = depth >= 2 ? `<a class="self" href="#${id}" aria-label="${words.self}">#</a>` : "";
+      return `<h${depth} id="${id}">${alias}${html}${self}</h${depth}>\n`;
     },
     code({ text, lang }) {
       const kind = (lang || "").split(/\s/)[0];
       const body = /^(elisp|emacs-lisp|lisp)$/.test(kind) ? lisp(text) : escape(text);
       return `<div class="code"><pre><code${kind ? ` class="language-${escape(kind)}"` : ""}>${body}</code></pre>`
-        + `<button class="copy" type="button" aria-label="Copy">Copy</button></div>\n`;
+        + `<button class="copy" type="button" aria-label="${words.copy}">${words.copy}</button></div>\n`;
     },
     link({ href, title, tokens }) {
       const label = this.parser.parseInline(tokens);
@@ -151,15 +168,16 @@ for (const h of headings.filter((h) => !(h.depth === 2 && h.id === "contents")))
 }
 if (open) toc += "</ul></li>";
 
-const nav = args.nav.map((pair) => {
+const pairLink = (pair, attrs = "") => {
   const at = pair.indexOf("=");
-  return `<a href="${escape(pair.slice(at + 1))}">${escape(pair.slice(0, at))}</a>`;
-}).join("");
+  return `<a href="${escape(pair.slice(at + 1))}"${attrs}>${escape(pair.slice(0, at))}</a>`;
+};
+const nav = (args.alt ? pairLink(args.alt, ` class="lang" hreflang="${ja ? "en" : "ja"}"`) : "") + args.nav.map((pair) => pairLink(pair)).join("");
 const description = escape((source.split("\n").find((line) => line && !line.startsWith("#") && !line.startsWith("<")) || args.title)
   .replace(/[`*_\[\]]|\([^)]*\)/g, "").slice(0, 200));
 
 const page = `<!doctype html>
-<html lang="en">
+<html lang="${ja ? "ja" : "en"}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -174,7 +192,9 @@ const page = `<!doctype html>
   --accent: #ab7df8; --code-bg: #151b23; --c: #9198a1; --s: #a5d6ff; --k: #d2a8ff; --q: #7ee787; --d: #ff7b72; --n: #79c0ff; } }
 * { box-sizing: border-box; }
 html { scroll-padding-top: 4.5rem; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Hiragino Sans", "Noto Sans JP", Meiryo, Helvetica, Arial, sans-serif; }
+:lang(ja) main { line-height: 1.8; }
+header.top nav a.lang { font-weight: 600; }
 a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
 header.top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
   padding: .6rem 1.25rem; background: var(--bg); border-bottom: 1px solid var(--line); }
@@ -230,14 +250,14 @@ footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--line);
 </header>
 <div class="layout">
 <aside id="toc">
-  <details open><summary>Contents</summary>
-  <input type="search" placeholder="Filter (a name, a word)" aria-label="Filter the contents">
-  <ul>${toc}</ul><p class="none">Nothing matches.</p>
+  <details open><summary>${words.contents}</summary>
+  <input type="search" placeholder="${words.filter}" aria-label="${words.filterLabel}">
+  <ul>${toc}</ul><p class="none">${words.none}</p>
   </details>
 </aside>
 <main>
 ${body}
-<footer>Generated from <a href="https://github.com/${escape(args.repo)}/blob/${escape(ref)}/${escape(args.in.replace(/^\.\//, ""))}">${escape(args.in.replace(/^\.\//, ""))}</a>${args.commit ? ` at ${escape(args.commit.slice(0, 7))}` : ""}. The Markdown is the source: agents can read it as it is.</footer>
+<footer>${words.footer(`<a href="https://github.com/${escape(args.repo)}/blob/${escape(ref)}/${escape(args.in.replace(/^\.\//, ""))}">${escape(args.in.replace(/^\.\//, ""))}</a>${args.commit ? ` (${escape(args.commit.slice(0, 7))})` : ""}`)}</footer>
 </main>
 </div>
 <script>
@@ -287,9 +307,17 @@ input.addEventListener("input", () => requestAnimationFrame(follow));
 follow();
 for (const button of document.querySelectorAll("button.copy")) {
   button.addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(button.previousElementSibling.textContent); button.textContent = "Copied"; }
-    catch { button.textContent = "Select it"; }
-    setTimeout(() => (button.textContent = "Copy"), 1500);
+    try { await navigator.clipboard.writeText(button.previousElementSibling.textContent); button.textContent = ${JSON.stringify(words.copied)}; }
+    catch { button.textContent = ${JSON.stringify(words.select)}; }
+    setTimeout(() => (button.textContent = ${JSON.stringify(words.copy)}), 1500);
+  });
+}
+// The other language, at the same place: the anchors are the same.
+for (const link of document.querySelectorAll("header a.lang")) {
+  link.addEventListener("click", (event) => {
+    if (!location.hash) return;
+    event.preventDefault();
+    location.href = link.href.split("#")[0] + location.hash;
   });
 }
 </script>
