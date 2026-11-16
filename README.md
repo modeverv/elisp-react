@@ -14,7 +14,7 @@ What it comes to:
 
 [日本語](README.ja.md)
 
-The complete API, written so that a coding agent can work from it without guessing: [doc/api.md](doc/api.md).
+The complete API, written so that a coding agent can work from it without guessing: [doc/api.md](doc/api.md), also as a web page: <https://modeverv.github.io/elisp-react/api/>.
 [SKILL.md](SKILL.md) is an Agent Skill that tells an agent to work from it: clone this repository into a skills directory (for Claude Code, `~/.claude/skills/elisp-react`, or `.claude/skills/elisp-react` in a project).
 
 ## A page
@@ -131,6 +131,7 @@ lisp/react.el          React: elements, jsx, components, state, keyed reconciler
 lisp/react-testing.el  a page made of Lisp data, for an application's tests without a browser (300 lines)
 js/elisp-react.js      the host: starts Emacs, applies DOM operations, forwards events, answers requests, compiles and caches the Lisp (1,100 lines)
 doc/api.md             the complete API, written so that a coding agent can work from it
+tools/api-doc.mjs      doc/api.md as the web page /api/ of the site (npm run docs)
 examples/counter/      a component with state
 examples/counters/     state in a parent, props down, events up, a list, a controlled input
 examples/todo/         a TODO list: jsx, keyed rows with state of their own, filters, reordering, localStorage

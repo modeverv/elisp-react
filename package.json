@@ -7,6 +7,7 @@
   "description": "React, written in Emacs Lisp; Emacs runs in the page as WebAssembly",
   "scripts": {
     "serve": "node tools/serve.mjs",
+    "docs": "node tools/api-doc.mjs --in doc/api.md --out _site/api/index.html --title \"elisp-react API\" --repo modeverv/elisp-react --version main --nav \"elisp-next API=https://modeverv.github.io/elisp-next/api/\" --nav \"Examples=../\"",
     "test": "npm run test:dom && npm run test:static && npm run test:lisp && npm run test:server-security && npm run test:e2e && npm run test:e2e-host && npm run test:server",
     "test:static": "node --test test/static-server.test.mjs",
     "test:lisp": "test/run-ert.sh",
